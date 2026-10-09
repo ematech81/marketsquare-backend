@@ -5,7 +5,7 @@ const bcrypt = require('bcryptjs');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 
 process.env.JWT_SECRET = 'test-secret';
-delete process.env.CLOUDINARY_API_SECRET;
+process.env.CLOUDINARY_API_SECRET = ''; // tests must not depend on the real .env keys
 
 const app = require('../src/app');
 const User = require('../src/models/User');

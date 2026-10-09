@@ -5,6 +5,7 @@ const User = require('../models/User');
 const validate = require('../middleware/validate');
 const { protect, requireRole } = require('../middleware/auth');
 const HttpError = require('../utils/httpError');
+const emails = require('../services/emails');
 
 router.use(protect, requireRole('admin'));
 
@@ -42,6 +43,9 @@ router.patch('/vendors/:id/status', validate(decisionSchema), async (req, res) =
 
   // Approved vendors get the vendor role; everyone else is a plain customer.
   await User.findByIdAndUpdate(vendor.user, { role: status === 'approved' ? 'vendor' : 'customer' });
+
+  const applicant = await User.findById(vendor.user);
+  if (applicant) emails.vendorDecision(vendor, applicant, status, reason);
 
   res.json({ vendor });
 });

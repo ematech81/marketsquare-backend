@@ -9,6 +9,7 @@ const SORTS = {
   newest: { createdAt: -1 },
   price_asc: { price: 1 },
   price_desc: { price: -1 },
+  rating: { ratingAverage: -1, ratingCount: -1 },
 };
 
 const publicProduct = (p) => ({
@@ -34,17 +35,21 @@ router.get('/categories', async (req, res) => {
 });
 
 router.get('/products', async (req, res) => {
-  const { q, category, minPrice, maxPrice, sort = 'newest' } = req.query;
+  const { q, category, minPrice, maxPrice, sort = 'newest', inStock, minRating } = req.query;
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(48, Math.max(1, parseInt(req.query.limit, 10) || 12));
 
   const filter = { status: 'active' };
   if (q) filter.title = { $regex: escapeRegex(String(q).trim()), $options: 'i' };
   if (category) {
-    const cat = await Category.findOne({ slug: String(category) });
+    // Several categories can be chosen at once: category=fashion,beauty.
+    const slugs = String(category).split(',').map((s) => s.trim()).filter(Boolean);
+    const cats = await Category.find({ slug: { $in: slugs } }).select('_id');
     // An unknown category matches nothing rather than everything.
-    filter.category = cat ? cat._id : null;
+    filter.category = { $in: cats.map((x) => x._id) };
   }
+  if (inStock === '1') filter.stock = { $gt: 0 };
+  if (minRating) filter.ratingAverage = { $gte: Number(minRating) };
   if (minPrice || maxPrice) {
     filter.price = {};
     if (minPrice) filter.price.$gte = Number(minPrice);

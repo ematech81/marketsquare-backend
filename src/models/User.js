@@ -8,6 +8,9 @@ const userSchema = new mongoose.Schema(
     passwordHash: { type: String, required: true, select: false },
     role: { type: String, enum: ['customer', 'vendor', 'admin'], default: 'customer' },
     status: { type: String, enum: ['active', 'suspended'], default: 'active' },
+    // Password reset: only a hash of the emailed token is stored.
+    resetTokenHash: { type: String, select: false },
+    resetExpires: { type: Date, select: false },
   },
   { timestamps: true }
 );

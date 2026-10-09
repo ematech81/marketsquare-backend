@@ -6,6 +6,8 @@ const { clientUrl } = require('./config/env');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
+// Behind Railway or another proxy, so rate limits see the real visitor address.
+app.set('trust proxy', 1);
 
 app.use(helmet());
 // CLIENT_URL can list several origins (storefront and dashboard), separated by commas.
@@ -18,7 +20,15 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/vendors', require('./routes/vendors'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/admin', require('./routes/adminCatalog'));
+app.use('/api/admin', require('./routes/adminOverview'));
+app.use('/api/admin', require('./routes/adminOrders'));
+app.use('/api/admin', require('./routes/adminCustomers'));
+app.use('/api', require('./routes/reviews'));
 app.use('/api', require('./routes/catalog'));
+app.use('/api', require('./routes/delivery'));
+app.use('/api/cart', require('./routes/cart'));
+app.use('/api/orders', require('./routes/orders'));
+app.use('/api/webhooks', require('./routes/webhooks'));
 
 app.use(notFound);
 app.use(errorHandler);
