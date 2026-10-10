@@ -7,7 +7,7 @@ const validate = require('../middleware/validate');
 const { protect, requireRole } = require('../middleware/auth');
 const HttpError = require('../utils/httpError');
 const User = require('../models/User');
-const emails = require('../services/emails');
+const notify = require('../services/notify');
 
 router.use(protect, requireRole('admin'));
 
@@ -116,7 +116,7 @@ router.patch('/shipments/:id/status', validate(statusSchema), async (req, res) =
   if (['shipped', 'delivered', 'cancelled'].includes(status)) {
     const order = await Order.findById(shipment.order);
     const user = order && (await User.findById(order.user));
-    if (order && user) emails.shipmentUpdate(order, user, shipment);
+    if (order && user) notify.shipmentChanged(order, user, shipment);
   }
   res.json({ shipment });
 });

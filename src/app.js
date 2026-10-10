@@ -23,6 +23,7 @@ app.use('/api/admin', require('./routes/adminCatalog'));
 app.use('/api/admin', require('./routes/adminOverview'));
 app.use('/api/admin', require('./routes/adminOrders'));
 app.use('/api/admin', require('./routes/adminCustomers'));
+app.use('/api', require('./routes/settings'));
 app.use('/api', require('./routes/reviews'));
 app.use('/api', require('./routes/catalog'));
 app.use('/api', require('./routes/delivery'));

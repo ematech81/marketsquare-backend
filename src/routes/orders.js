@@ -9,7 +9,7 @@ const { protect } = require('../middleware/auth');
 const { readCart } = require('../services/cart');
 const korapay = require('../services/korapay');
 const { markOrderPaid } = require('../services/orders');
-const { webUrl } = require('../config/env');
+const { webUrl, minOrderAmount } = require('../config/env');
 const states = require('../utils/nigeriaStates');
 const HttpError = require('../utils/httpError');
 const { checkoutLimiter } = require('../middleware/rateLimit');
@@ -49,6 +49,11 @@ router.post('/checkout', checkoutLimiter, validate(checkoutSchema), async (req, 
   if (cart.items.length === 0) throw new HttpError(400, 'Your cart is empty');
   const problem = cart.items.find((i) => i.issue);
   if (problem) throw new HttpError(409, `${problem.product.title}: ${problem.issue}. Update your cart to continue`);
+
+  if (cart.subtotal < minOrderAmount) {
+    const short = minOrderAmount - cart.subtotal;
+    throw new HttpError(400, `The minimum order is ₦${minOrderAmount.toLocaleString('en-NG')}. Add ₦${short.toLocaleString('en-NG')} more to check out`);
+  }
 
   const { address } = req.body;
   const zone = await DeliveryZone.findOne({ state: address.state });

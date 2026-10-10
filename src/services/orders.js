@@ -3,7 +3,7 @@ const Product = require('../models/Product');
 const Shipment = require('../models/Shipment');
 const Cart = require('../models/Cart');
 const User = require('../models/User');
-const emails = require('./emails');
+const notify = require('./notify');
 
 // Turns a pending order into a paid one. Safe to call any number of times for the same order
 // (webhook retries, the customer's return page, a manual verify): only the first call that finds the
@@ -86,8 +86,7 @@ async function markOrderPaid(order, paidAmount) {
   User.findById(claimed.user)
     .then((user) => {
       if (!user) return;
-      emails.orderReceived(claimed, user);
-      emails.newOrderAlert(claimed, user);
+      notify.orderPaid(claimed, user);
     })
     .catch((err) => console.error('Order email failed:', err.message));
 
