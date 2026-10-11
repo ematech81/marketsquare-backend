@@ -16,6 +16,8 @@ const productSchema = new mongoose.Schema(
     variants: [{ name: { type: String, required: true }, options: [String], _id: false }],
     stock: { type: Number, required: true, min: 0, default: 0 },
     status: { type: String, enum: ['draft', 'pending', 'active', 'rejected'], default: 'draft', index: true },
+    // Why the admin turned down a vendor's listing.
+    rejectionReason: { type: String, trim: true },
     ratingAverage: { type: Number, default: 0 },
     ratingCount: { type: Number, default: 0 },
   },

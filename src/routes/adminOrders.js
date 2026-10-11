@@ -1,17 +1,14 @@
 const router = require('express').Router();
 const { z } = require('zod');
 const Order = require('../models/Order');
-const Product = require('../models/Product');
 const Shipment = require('../models/Shipment');
 const validate = require('../middleware/validate');
 const { protect, requireRole } = require('../middleware/auth');
 const HttpError = require('../utils/httpError');
-const User = require('../models/User');
-const notify = require('../services/notify');
+const { moveShipment } = require('../services/shipments');
+const wallet = require('../services/wallet');
 
 router.use(protect, requireRole('admin'));
-
-const FLOW = ['placed', 'confirmed', 'packed', 'shipped', 'delivered'];
 
 // One label for the whole order, worked out from its shipments.
 function orderStatus(order, shipments) {
@@ -85,40 +82,26 @@ router.get('/orders/:orderNumber', async (req, res) => {
   });
 });
 
-const statusSchema = z.object({ status: z.enum(['confirmed', 'packed', 'shipped', 'delivered', 'cancelled']) });
+const ALL = ['confirmed', 'packed', 'shipped', 'delivered', 'cancelled'];
+const statusSchema = z.object({ status: z.enum(ALL) });
 
-// Moves one shipment forward a step, or cancels it.
+// Moves one shipment forward a step, or cancels it. The admin may set any status.
 router.patch('/shipments/:id/status', validate(statusSchema), async (req, res) => {
   const shipment = await Shipment.findById(req.params.id);
   if (!shipment) throw new HttpError(404, 'Shipment not found');
-  const { status } = req.body;
-
-  if (shipment.status === 'delivered' || shipment.status === 'cancelled') {
-    throw new HttpError(409, `This shipment is already ${shipment.status}`);
-  }
-
-  if (status === 'cancelled') {
-    // Put the stock back, once, for the lines whose stock was taken at payment.
-    for (const item of shipment.items) {
-      if (item.stockTaken) {
-        await Product.updateOne({ _id: item.product }, { $inc: { stock: item.quantity } });
-        item.stockTaken = false;
-      }
-    }
-  } else if (FLOW.indexOf(status) !== FLOW.indexOf(shipment.status) + 1) {
-    throw new HttpError(409, `A ${shipment.status} shipment cannot go straight to ${status}. Do each step in order`);
-  }
-
-  shipment.status = status;
-  shipment.timeline.push({ status, at: new Date() });
-  await shipment.save();
-
-  if (['shipped', 'delivered', 'cancelled'].includes(status)) {
-    const order = await Order.findById(shipment.order);
-    const user = order && (await User.findById(order.user));
-    if (order && user) notify.shipmentChanged(order, user, shipment);
-  }
+  await moveShipment(shipment, req.body.status, ALL);
   res.json({ shipment });
+});
+
+// After a return or refund on a vendor's delivered shipment, take the vendor's credit back.
+router.post('/shipments/:id/reverse-credit', async (req, res) => {
+  const shipment = await Shipment.findById(req.params.id);
+  if (!shipment) throw new HttpError(404, 'Shipment not found');
+  if (shipment.status !== 'delivered') throw new HttpError(409, 'Only a delivered shipment has a credit to take back');
+  const net = await wallet.reverseCredit(shipment);
+  shipment.refundedAt = new Date();
+  await shipment.save();
+  res.json({ takenBack: net });
 });
 
 module.exports = router;

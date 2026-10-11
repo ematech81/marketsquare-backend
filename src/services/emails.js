@@ -113,3 +113,56 @@ function passwordReset(user, link) {
 }
 
 module.exports = { orderReceived, newOrderAlert, shipmentUpdate, vendorDecision, passwordReset };
+
+// ---------- Vendor-facing emails ----------
+
+const vendorLink = process.env.DASHBOARD_URL || 'http://localhost:3001';
+
+// A vendor is told when a customer pays for one of their products.
+function vendorNewOrder(vendor, owner, order, lines) {
+  const subject = `New order ${order.orderNumber} for ${vendor.businessName}`;
+  const total = lines.reduce((sum, l) => sum + l.price * l.quantity, 0);
+  const text = [
+    `Hi ${owner.name},`,
+    '',
+    `A customer paid for ${lines.length === 1 ? 'an item' : 'items'} from ${vendor.businessName}.`,
+    '',
+    ...itemLines(lines),
+    `Items total: ${naira(total)}`,
+    '',
+    `Open your dashboard to confirm the order: ${vendorLink}/orders`,
+  ].join('\n');
+  const html = wrap(
+    'You have a new order',
+    `<p>Hi ${esc(owner.name)}, a customer paid for items from <strong>${esc(vendor.businessName)}</strong>.</p>
+<table style="width:100%;border-collapse:collapse;font-size:15px">${itemRows(lines)}</table>
+${button(`${vendorLink}/orders`, 'Open your orders')}`,
+  );
+  return sendMail({ to: owner.email, subject, text, html });
+}
+
+// Tells a vendor whether their listing is live.
+function productReview(product, owner, decision, reason) {
+  const approved = decision === 'approve';
+  const subject = approved ? `Your product is live: ${product.title}` : `Your product needs changes: ${product.title}`;
+  const text = approved
+    ? `Hi ${owner.name},\n\n"${product.title}" has been approved and customers can now see it.`
+    : `Hi ${owner.name},\n\nWe could not approve "${product.title}" yet.\nReason: ${reason}\n\nEdit the listing in your dashboard and submit it again: ${vendorLink}/products`;
+  const html = wrap(subject, `<p>${esc(text).replace(/\n/g, '<br>')}</p>`);
+  return sendMail({ to: owner.email, subject, text, html });
+}
+
+// Tells a vendor what happened to a payout request.
+function payoutUpdate(vendor, owner, payout) {
+  const paid = payout.status === 'paid';
+  const subject = paid ? `Your payout of ${naira(payout.amount)} was sent` : `Your payout request was not approved`;
+  const text = paid
+    ? `Hi ${owner.name},\n\nWe have paid ${naira(payout.amount)} to ${payout.bank.bankName} ${payout.bank.accountNumber}.${payout.reference ? `\nReference: ${payout.reference}` : ''}`
+    : `Hi ${owner.name},\n\nWe could not process your payout of ${naira(payout.amount)}.\nReason: ${payout.rejectionReason}\n\nThe money is back in your wallet.`;
+  const html = wrap(subject, `<p>${esc(text).replace(/\n/g, '<br>')}</p>`);
+  return sendMail({ to: owner.email, subject, text, html });
+}
+
+module.exports.vendorNewOrder = vendorNewOrder;
+module.exports.productReview = productReview;
+module.exports.payoutUpdate = payoutUpdate;

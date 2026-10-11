@@ -35,7 +35,7 @@ router.get('/categories', async (req, res) => {
 });
 
 router.get('/products', async (req, res) => {
-  const { q, category, minPrice, maxPrice, sort = 'newest', inStock, minRating } = req.query;
+  const { q, category, minPrice, maxPrice, sort = 'newest', inStock, minRating, vendor } = req.query;
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(48, Math.max(1, parseInt(req.query.limit, 10) || 12));
 
@@ -47,6 +47,15 @@ router.get('/products', async (req, res) => {
     const cats = await Category.find({ slug: { $in: slugs } }).select('_id');
     // An unknown category matches nothing rather than everything.
     filter.category = { $in: cats.map((x) => x._id) };
+  }
+  if (vendor) {
+    // vendor=<id,id> picks stores; vendor=house is the store's own products.
+    const wanted = String(vendor).split(',').map((s) => s.trim()).filter(Boolean);
+    const ids = wanted.filter((v) => /^[a-f0-9]{24}$/i.test(v));
+    const or = [];
+    if (ids.length) or.push({ vendor: { $in: ids } });
+    if (wanted.includes('house')) or.push({ vendor: null });
+    filter.$or = or.length ? or : [{ _id: null }];
   }
   if (inStock === '1') filter.stock = { $gt: 0 };
   if (minRating) filter.ratingAverage = { $gte: Number(minRating) };

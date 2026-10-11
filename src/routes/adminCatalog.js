@@ -1,5 +1,4 @@
 const router = require('express').Router();
-const crypto = require('crypto');
 const { z } = require('zod');
 const Category = require('../models/Category');
 const Product = require('../models/Product');
@@ -7,6 +6,8 @@ const validate = require('../middleware/validate');
 const { protect, requireRole } = require('../middleware/auth');
 const HttpError = require('../utils/httpError');
 const { slugify, uniqueSlug } = require('../utils/slug');
+const { productSchema } = require('../utils/productSchema');
+const { signUpload } = require('../utils/cloudinary');
 
 router.use(protect, requireRole('admin'));
 
@@ -45,32 +46,6 @@ router.delete('/categories/:id', async (req, res) => {
 
 // ---------- Products ----------
 
-const productSchema = z
-  .object({
-    title: z.string().trim().min(3, 'Enter a product title'),
-    description: z.string().trim().min(10, 'Describe the product in a few words'),
-    category: z.string().regex(/^[a-f\d]{24}$/i, 'Choose a category'),
-    price: z.number().int('Price must be a whole number of Naira').positive('Enter a price'),
-    compareAtPrice: z.number().int().positive().optional(),
-    images: z
-      .array(z.object({ url: z.string().url(), publicId: z.string().optional() }))
-      .max(8, 'Up to 8 images')
-      .default([]),
-    variants: z
-      .array(z.object({ name: z.string().trim().min(1), options: z.array(z.string().trim().min(1)).min(1) }))
-      .default([]),
-    stock: z.number().int().min(0, 'Stock cannot be negative'),
-    status: z.enum(['draft', 'active']).default('active'),
-  })
-  .refine((p) => p.compareAtPrice === undefined || p.compareAtPrice > p.price, {
-    path: ['compareAtPrice'],
-    message: 'Must be higher than the price',
-  })
-  .refine((p) => p.status !== 'active' || p.images.length > 0, {
-    path: ['images'],
-    message: 'Add at least one image before publishing',
-  });
-
 async function assertCategory(id) {
   if (!(await Category.exists({ _id: id }))) throw new HttpError(400, 'category: Choose a category');
 }
@@ -78,7 +53,7 @@ async function assertCategory(id) {
 router.get('/products', async (req, res) => {
   const filter = {};
   if (req.query.status) filter.status = String(req.query.status);
-  const products = await Product.find(filter).sort({ createdAt: -1 }).populate('category', 'name slug');
+  const products = await Product.find(filter).sort({ createdAt: -1 }).populate('category', 'name slug').populate('vendor', 'businessName');
   res.json({ products });
 });
 
@@ -112,16 +87,8 @@ router.delete('/products/:id', async (req, res) => {
 
 // ---------- Image uploads ----------
 
-// The browser uploads straight to Cloudinary with this signature, so image bytes never pass through the API.
 router.post('/uploads/sign', (req, res) => {
-  const { CLOUDINARY_CLOUD_NAME: cloudName, CLOUDINARY_API_KEY: apiKey, CLOUDINARY_API_SECRET: secret } = process.env;
-  if (!cloudName || !apiKey || !secret) {
-    throw new HttpError(503, 'Image uploads are not set up yet. Add the Cloudinary keys to api/.env');
-  }
-  const timestamp = Math.floor(Date.now() / 1000);
-  const folder = 'squaremarket/products';
-  const signature = crypto.createHash('sha1').update(`folder=${folder}&timestamp=${timestamp}${secret}`).digest('hex');
-  res.json({ cloudName, apiKey, timestamp, folder, signature });
+  res.json(signUpload('squaremarket/products'));
 });
 
 module.exports = router;
