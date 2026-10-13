@@ -26,6 +26,14 @@ const publicProduct = (p) => ({
   stock: p.stock,
   ratingAverage: p.ratingAverage,
   ratingCount: p.ratingCount,
+  brand: p.brand,
+  sku: p.sku,
+  gtin: p.gtin,
+  tags: p.tags,
+  details: p.details,
+  seoTitle: p.seoTitle,
+  seoDescription: p.seoDescription,
+  updatedAt: p.updatedAt,
   seller: p.vendor ? { id: p.vendor._id, name: p.vendor.businessName } : { id: null, name: 'Square Market' },
 });
 
@@ -40,7 +48,10 @@ router.get('/products', async (req, res) => {
   const limit = Math.min(48, Math.max(1, parseInt(req.query.limit, 10) || 12));
 
   const filter = { status: 'active' };
-  if (q) filter.title = { $regex: escapeRegex(String(q).trim()), $options: 'i' };
+  if (q) {
+    const rx = { $regex: escapeRegex(String(q).trim()), $options: 'i' };
+    filter.$and = [{ $or: [{ title: rx }, { brand: rx }, { tags: rx }] }];
+  }
   if (category) {
     // Several categories can be chosen at once: category=fashion,beauty.
     const slugs = String(category).split(',').map((s) => s.trim()).filter(Boolean);
@@ -84,7 +95,7 @@ router.get('/products', async (req, res) => {
 });
 
 router.get('/products/:slug', async (req, res) => {
-  const product = await Product.findOne({ slug: req.params.slug, status: 'active' })
+  const product = await Product.findOne({ $or: [{ slug: req.params.slug }, { oldSlugs: req.params.slug }], status: 'active' })
     .populate('category', 'name slug')
     .populate('vendor', 'businessName');
   if (!product) throw new HttpError(404, 'Product not found');

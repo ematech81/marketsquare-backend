@@ -90,7 +90,7 @@ test('admin lists a product and shoppers can find it', async () => {
     },
   });
   assert.equal(shirt.status, 201);
-  assert.match(shirt.data.product.slug, /^ankara-shirt-[a-f0-9]{6}$/);
+  assert.equal(shirt.data.product.slug, 'ankara-shirt'); // a clean address made from the title
 
   await call('POST', '/admin/products', {
     token: adminToken,

@@ -75,6 +75,8 @@ async function buy(productId, quantity = 1) {
 before(async () => {
   mongod = await MongoMemoryServer.create({ instance: { launchTimeout: 120000 } });
   await mongoose.connect(mongod.getUri());
+  // Build the database indexes (they guard against double credits) before the first request.
+  await Promise.all(Object.values(mongoose.models).map((m) => m.init()));
   server = app.listen(0);
   base = `http://localhost:${server.address().port}/api`;
   korapay.initializeCharge = async (a) => ({ checkout_url: `https://checkout.korapay.com/${a.reference}/pay` });
@@ -275,4 +277,21 @@ test('the vendor overview adds up their shop', async () => {
   assert.equal(res.data.balance, 42750);
   assert.equal(res.data.products.live, 1);
   assert.equal(res.data.products.draft, 1);
+});
+
+test('the admin can preview a vendor product before approving it', async () => {
+  const created = await call('POST', '/vendor/products', { token: zara, body: productBody('Preview Me', 50000) });
+  const id = created.data.product._id;
+  assert.equal(created.data.product.status, 'pending');
+
+  // Nobody else can see it, but the admin can look at it in full while it is waiting.
+  assert.equal((await call('GET', `/products/${created.data.product.slug}`)).status, 404);
+  assert.equal((await call('GET', `/admin/products/${id}/preview`, { token: zara })).status, 403);
+  const preview = await call('GET', `/admin/products/${id}/preview`, { token: admin });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.data.product.title, 'Preview Me');
+  assert.equal(preview.data.product.category.name, 'Fashion');
+  assert.equal(preview.data.product.vendor.businessName, 'Zara Wears');
+  assert.equal(preview.data.product.status, 'pending');
+  assert.equal((await call('GET', '/admin/products/000000000000000000000000/preview', { token: admin })).status, 404);
 });

@@ -5,7 +5,7 @@ const Product = require('../models/Product');
 const validate = require('../middleware/validate');
 const { protect, requireRole } = require('../middleware/auth');
 const HttpError = require('../utils/httpError');
-const { slugify, uniqueSlug } = require('../utils/slug');
+const { slugify, freeSlug, changeSlug } = require('../utils/slug');
 const { productSchema } = require('../utils/productSchema');
 const { signUpload } = require('../utils/cloudinary');
 
@@ -57,6 +57,13 @@ router.get('/products', async (req, res) => {
   res.json({ products });
 });
 
+// Everything about a product as the admin needs to judge it, including who listed it. Works for any status.
+router.get('/products/:id/preview', async (req, res) => {
+  const product = await Product.findById(req.params.id).populate('category', 'name slug').populate('vendor', 'businessName category state city');
+  if (!product) throw new HttpError(404, 'Product not found');
+  res.json({ product });
+});
+
 router.get('/products/:id', async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) throw new HttpError(404, 'Product not found');
@@ -65,7 +72,8 @@ router.get('/products/:id', async (req, res) => {
 
 router.post('/products', validate(productSchema), async (req, res) => {
   await assertCategory(req.body.category);
-  const product = await Product.create({ ...req.body, slug: uniqueSlug(req.body.title), vendor: null });
+  const slug = await freeSlug(Product, req.body.slug || req.body.title);
+  const product = await Product.create({ ...req.body, slug, vendor: null });
   res.status(201).json({ product });
 });
 
@@ -73,8 +81,10 @@ router.put('/products/:id', validate(productSchema), async (req, res) => {
   await assertCategory(req.body.category);
   const product = await Product.findById(req.params.id);
   if (!product) throw new HttpError(404, 'Product not found');
-  // The slug stays the same so existing links keep working.
-  product.set(req.body);
+  // Changing the web address keeps the old one working (it redirects).
+  const { slug: wantedSlug, ...fields } = req.body;
+  product.set(fields);
+  await changeSlug(Product, product, wantedSlug);
   await product.save();
   res.json({ product });
 });
@@ -88,7 +98,7 @@ router.delete('/products/:id', async (req, res) => {
 // ---------- Image uploads ----------
 
 router.post('/uploads/sign', (req, res) => {
-  res.json(signUpload('squaremarket/products'));
+  res.json(signUpload('squaremarket/products', req.body?.name));
 });
 
 module.exports = router;

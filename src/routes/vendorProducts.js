@@ -5,7 +5,7 @@ const validate = require('../middleware/validate');
 const { protect } = require('../middleware/auth');
 const { requireVendor } = require('../middleware/vendor');
 const HttpError = require('../utils/httpError');
-const { uniqueSlug } = require('../utils/slug');
+const { freeSlug, changeSlug } = require('../utils/slug');
 const { productSchema } = require('../utils/productSchema');
 const { signUpload } = require('../utils/cloudinary');
 const { getStoreSettings } = require('../services/storeSettings');
@@ -36,7 +36,8 @@ router.post('/products', validate(productSchema), async (req, res) => {
   await assertCategory(req.body.category);
   const { requireListingApproval } = await getStoreSettings();
   const status = req.body.status === 'active' ? (requireListingApproval ? 'pending' : 'active') : 'draft';
-  const product = await Product.create({ ...req.body, status, slug: uniqueSlug(req.body.title), vendor: req.vendor._id });
+  const slug = await freeSlug(Product, req.body.slug || req.body.title);
+  const product = await Product.create({ ...req.body, status, slug, vendor: req.vendor._id });
   res.status(201).json({ product });
 });
 
@@ -59,7 +60,9 @@ router.put('/products/:id', validate(productSchema), async (req, res) => {
   else if (product.status === 'active' && !(contentChanged && requireListingApproval)) status = 'active';
   else status = requireListingApproval ? 'pending' : 'active';
 
-  product.set({ ...req.body, status, rejectionReason: undefined });
+  const { slug: wantedSlug, ...fields } = req.body;
+  product.set({ ...fields, status, rejectionReason: undefined });
+  await changeSlug(Product, product, wantedSlug);
   await product.save();
   res.json({ product });
 });
@@ -71,7 +74,7 @@ router.delete('/products/:id', async (req, res) => {
 });
 
 router.post('/uploads/sign', (req, res) => {
-  res.json(signUpload(`squaremarket/vendors/${req.vendor._id}`));
+  res.json(signUpload(`squaremarket/vendors/${req.vendor._id}`, req.body?.name));
 });
 
 module.exports = router;

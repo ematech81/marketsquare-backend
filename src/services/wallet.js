@@ -17,6 +17,8 @@ async function creditForDelivery(shipment) {
   const vendor = await Vendor.findById(shipment.vendor);
   if (!vendor) return null;
 
+  if (await WalletTransaction.exists({ shipment: shipment._id, type: 'sale' })) return null; // already credited
+
   const gross = grossOf(shipment);
   const rate = vendor.commissionRate ?? (await getStoreSettings()).defaultCommissionRate;
   const commission = Math.round((gross * rate) / 100);
@@ -39,6 +41,9 @@ async function reverseCredit(shipment) {
   if (!shipment.vendor) throw new HttpError(400, 'This shipment has no vendor credit to take back');
   const sale = await WalletTransaction.findOne({ shipment: shipment._id, type: 'sale' });
   if (!sale) throw new HttpError(409, 'This shipment was never credited to the vendor');
+  if (await WalletTransaction.exists({ shipment: shipment._id, type: 'refund' })) {
+    throw new HttpError(409, 'The credit for this shipment was already taken back');
+  }
   const commission = await WalletTransaction.findOne({ shipment: shipment._id, type: 'commission' });
   const net = sale.amount + (commission?.amount ?? 0);
 
