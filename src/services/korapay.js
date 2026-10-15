@@ -21,7 +21,10 @@ async function request(path, options = {}) {
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.status === false) {
-    console.error('KoraPay error', res.status, data.message);
+    console.error('KoraPay error', path.split('/')[1], res.status, data.code, data.message, JSON.stringify(data.data ?? data.errors ?? ''));
+    if (res.status === 409 && /limit/i.test(String(data.message))) {
+      throw new HttpError(400, 'This amount is above what we can take as one online payment right now. Please reduce your cart or contact us');
+    }
     throw new HttpError(502, 'The payment provider rejected this request. Please try again');
   }
   return data.data;
