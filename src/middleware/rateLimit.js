@@ -16,4 +16,7 @@ const authLimiter = make(30, 'Too many attempts. Please wait a few minutes and t
 // Stops a script from creating piles of unpaid orders.
 const checkoutLimiter = make(40, 'Too many checkout attempts. Please wait a few minutes.');
 
-module.exports = { authLimiter, checkoutLimiter };
+// Stops a script from filling the shared category list.
+const categoryLimiter = make(20, 'Too many new categories. Please wait a few minutes.');
+
+module.exports = { authLimiter, checkoutLimiter, categoryLimiter };

@@ -4,8 +4,20 @@ const Vendor = require('../models/Vendor');
 const validate = require('../middleware/validate');
 const { protect, requireRole } = require('../middleware/auth');
 const HttpError = require('../utils/httpError');
+const { findOrCreateCategory } = require('../services/categories');
+const { categoryLimiter } = require('../middleware/rateLimit');
 
 const text = (label) => z.string().trim().min(2, `Enter ${label}`);
+
+// Each ID has its own shape. A NIN is exactly 11 digits. The others differ in length, so they only need to
+// look like an ID: 6 to 20 letters and numbers.
+const checkId = (v, ctx) => {
+  if (v.idType === 'nin') {
+    if (!/^\d{11}$/.test(v.idNumber)) ctx.addIssue({ code: 'custom', path: ['idNumber'], message: 'A NIN must be exactly 11 digits' });
+  } else if (!/^[A-Za-z0-9-]{6,20}$/.test(v.idNumber)) {
+    ctx.addIssue({ code: 'custom', path: ['idNumber'], message: 'Enter a valid ID number (6 to 20 letters and numbers)' });
+  }
+};
 
 const applySchema = z.object({
   businessName: text('your business name'),
@@ -15,20 +27,22 @@ const applySchema = z.object({
   phone: z.string().trim().regex(/^(\+234|0)\d{10}$/, 'Enter a valid Nigerian phone number'),
   rcNumber: z.string().trim().optional(),
   idType: z.enum(['nin', 'drivers_license', 'passport', 'voters_card'], { message: 'Choose an ID type' }),
-  idNumber: text('your ID number'),
+  idNumber: z.string().transform((x) => x.replace(/\s+/g, '')).pipe(text('your ID number')),
   bank: z.object({
     bankName: text('your bank name'),
     accountNumber: z.string().trim().regex(/^\d{10}$/, 'Account number must be 10 digits'),
     accountName: text('your account name'),
   }),
-});
+}).superRefine(checkId);
 
 // A signed-in customer applies to become a vendor. Stays pending until an admin approves.
-router.post('/apply', protect, requireRole('customer'), validate(applySchema), async (req, res) => {
+router.post('/apply', protect, requireRole('customer'), categoryLimiter, validate(applySchema), async (req, res) => {
   if (await Vendor.exists({ user: req.user._id })) {
     throw new HttpError(409, 'You have already applied to sell on Square Market');
   }
-  const vendor = await Vendor.create({ ...req.body, user: req.user._id });
+  // A category that is not in the list yet is added to the shared list.
+  const { category } = await findOrCreateCategory(req.body.category);
+  const vendor = await Vendor.create({ ...req.body, category: category.name, user: req.user._id });
   res.status(201).json({ vendor });
 });
 
@@ -44,7 +58,8 @@ router.put('/me', protect, validate(applySchema), async (req, res) => {
   if (!vendor) throw new HttpError(404, 'No vendor application found');
   if (vendor.status !== 'rejected') throw new HttpError(409, 'Only rejected applications can be resubmitted');
 
-  vendor.set({ ...req.body, status: 'pending', rejectionReason: undefined, reviewedAt: undefined });
+  const { category } = await findOrCreateCategory(req.body.category);
+  vendor.set({ ...req.body, category: category.name, status: 'pending', rejectionReason: undefined, reviewedAt: undefined });
   await vendor.save();
   res.json({ vendor });
 });

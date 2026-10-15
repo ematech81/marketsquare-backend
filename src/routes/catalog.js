@@ -2,6 +2,9 @@ const router = require('express').Router();
 const Category = require('../models/Category');
 const Product = require('../models/Product');
 const HttpError = require('../utils/httpError');
+const { protect, requireRole } = require('../middleware/auth');
+const { findOrCreateCategory } = require('../services/categories');
+const { categoryLimiter } = require('../middleware/rateLimit');
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -35,6 +38,12 @@ const publicProduct = (p) => ({
   seoDescription: p.seoDescription,
   updatedAt: p.updatedAt,
   seller: p.vendor ? { id: p.vendor._id, name: p.vendor.businessName } : { id: null, name: 'Square Market' },
+});
+
+// A vendor or admin who cannot find their category adds it. It joins the one shared list used everywhere.
+router.post('/categories', protect, requireRole('vendor', 'admin'), categoryLimiter, async (req, res) => {
+  const { category, created } = await findOrCreateCategory(req.body?.name);
+  res.status(created ? 201 : 200).json({ category, created });
 });
 
 router.get('/categories', async (req, res) => {
