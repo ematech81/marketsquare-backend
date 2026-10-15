@@ -128,7 +128,7 @@ router.post('/:orderNumber/verify', async (req, res) => {
   if (order.paymentStatus === 'pending') {
     const charge = await korapay.verifyCharge(order.checkoutReference);
     if (charge.status === 'success') await markOrderPaid(order, charge.amount);
-    else if (charge.status === 'failed') await Order.updateOne({ _id: order._id, paymentStatus: 'pending' }, { paymentStatus: 'failed' });
+    else if (['failed', 'cancelled', 'canceled', 'expired'].includes(charge.status)) await Order.updateOne({ _id: order._id, paymentStatus: 'pending' }, { paymentStatus: 'failed' });
   }
   res.json({ order: await view(await Order.findById(order._id)) });
 });
