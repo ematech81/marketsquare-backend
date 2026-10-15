@@ -101,7 +101,7 @@ after(async () => {
 test('store rules start with sensible defaults and only the admin can change them', async () => {
   assert.equal((await call('GET', '/admin/settings', { token: zara })).status, 403);
   const res = await call('GET', '/admin/settings', { token: admin });
-  assert.deepEqual(res.data.settings, { defaultCommissionRate: 10, minPayoutAmount: 10000, requireListingApproval: true });
+  assert.deepEqual(res.data.settings, { defaultCommissionRate: 10, minPayoutAmount: 10000, requireListingApproval: true, codEnabled: true, codMaxAmount: 100000 });
   assert.equal((await call('PUT', '/admin/settings', { token: admin, body: { defaultCommissionRate: 150, minPayoutAmount: 5000, requireListingApproval: true } })).status, 400);
 });
 

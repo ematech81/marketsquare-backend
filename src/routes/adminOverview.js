@@ -12,7 +12,7 @@ router.use(protect, requireRole('admin'));
 router.get('/overview', async (req, res) => {
   const [paid, orderCount, activeVendors, pendingVendors, productCount, customerCount, applications, recent] = await Promise.all([
     Order.aggregate([{ $match: { paymentStatus: 'paid' } }, { $group: { _id: null, sales: { $sum: '$total' }, count: { $sum: 1 } } }]),
-    Order.countDocuments({ paymentStatus: { $in: ['paid', 'mismatch'] } }),
+    Order.countDocuments({ paymentStatus: { $in: ['paid', 'mismatch', 'cod'] } }),
     Vendor.countDocuments({ status: 'approved' }),
     Vendor.countDocuments({ status: 'pending' }),
     Product.countDocuments({ status: 'active' }),
@@ -29,7 +29,7 @@ router.get('/overview', async (req, res) => {
     if (s.length > 0 && s.every((x) => x === 'delivered')) return 'Delivered';
     if (s.some((x) => x === 'shipped' || x === 'delivered')) return s.every((x) => x === 'shipped' || x === 'delivered') ? 'Shipped' : 'Partly shipped';
     if (s.some((x) => x === 'packed')) return 'Packed';
-    return 'Paid';
+    return order.paymentStatus === 'cod' ? 'Pay on delivery' : 'Paid';
   };
 
   res.json({

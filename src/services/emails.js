@@ -26,26 +26,27 @@ const orderLink = (order) => `${webUrl}/orders/${order.orderNumber}`;
 
 // The receipt sent to the customer once payment is confirmed.
 function orderReceived(order, user) {
+  const cod = order.paymentMethod === 'cod';
   const to = order.contactEmail || user.email;
   const subject = `We got your order ${order.orderNumber}`;
   const text = [
     `Hi ${user.name},`,
     '',
-    `Thank you. We have received your payment for order ${order.orderNumber}.`,
+    cod ? `Thank you. We have received your order ${order.orderNumber}. You will pay when it arrives.` : `Thank you. We have received your payment for order ${order.orderNumber}.`,
     '',
     ...itemLines(order.items),
     `Delivery: ${naira(order.deliveryTotal)}`,
-    `Total paid: ${naira(order.total)}`,
+    cod ? `Total to pay on delivery: ${naira(order.total)}` : `Total paid: ${naira(order.total)}`,
     '',
     `We will deliver to: ${order.address.street}, ${order.address.city}, ${order.address.state}.`,
     `Follow your order: ${orderLink(order)}`,
   ].join('\n');
   const html = wrap(
     'We got your order',
-    `<p>Hi ${esc(user.name)}, thank you. We have received your payment for order <strong>${esc(order.orderNumber)}</strong>.</p>
+    `<p>Hi ${esc(user.name)}, thank you. ${cod ? 'We have received your order' : 'We have received your payment for order'} <strong>${esc(order.orderNumber)}</strong>.${cod ? ' You will pay when it arrives.' : ''}</p>
 <table style="width:100%;border-collapse:collapse;font-size:15px">${itemRows(order.items)}
 <tr><td style="padding:6px 0;color:#4A5568">Delivery</td><td style="padding:6px 0;text-align:right">${naira(order.deliveryTotal)}</td></tr>
-<tr><td style="padding:10px 0;border-top:2px solid #111317;font-weight:700">Total paid</td><td style="padding:10px 0;border-top:2px solid #111317;text-align:right;font-weight:700">${naira(order.total)}</td></tr></table>
+<tr><td style="padding:10px 0;border-top:2px solid #111317;font-weight:700">${cod ? 'Total to pay on delivery' : 'Total paid'}</td><td style="padding:10px 0;border-top:2px solid #111317;text-align:right;font-weight:700">${naira(order.total)}</td></tr></table>
 <p style="color:#4A5568">We will deliver to ${esc(order.address.street)}, ${esc(order.address.city)}, ${esc(order.address.state)}.</p>
 ${button(orderLink(order), 'Follow your order')}`,
   );
@@ -57,12 +58,12 @@ function newOrderAlert(order, user) {
   const to = process.env.ADMIN_ALERT_EMAIL;
   const subject = `New order ${order.orderNumber}: ${naira(order.total)}`;
   const text = [
-    `A new paid order came in.`,
+    order.paymentMethod === 'cod' ? `A new PAY ON DELIVERY order came in. Collect ${naira(order.total)} when it is delivered.` : `A new paid order came in.`,
     '',
     `Order: ${order.orderNumber}`,
     `Customer: ${user.name}, ${order.address.phone}`,
     ...itemLines(order.items),
-    `Total paid: ${naira(order.total)}`,
+    order.paymentMethod === 'cod' ? `Total to collect: ${naira(order.total)}` : `Total paid: ${naira(order.total)}`,
     `Deliver to: ${order.address.street}, ${order.address.city}, ${order.address.state}`,
     order.needsAttention ? `NEEDS ATTENTION: ${order.needsAttention}` : '',
   ].filter(Boolean).join('\n');
@@ -125,7 +126,7 @@ function vendorNewOrder(vendor, owner, order, lines) {
   const text = [
     `Hi ${owner.name},`,
     '',
-    `A customer paid for ${lines.length === 1 ? 'an item' : 'items'} from ${vendor.businessName}.`,
+    `A customer ${order.paymentMethod === 'cod' ? 'ordered' : 'paid for'} ${lines.length === 1 ? 'an item' : 'items'} from ${vendor.businessName}.${order.paymentMethod === 'cod' ? ' It is pay on delivery: Square Market collects the money when it is delivered, and your earnings are added to your wallet then.' : ''}`,
     '',
     ...itemLines(lines),
     `Items total: ${naira(total)}`,
@@ -134,7 +135,7 @@ function vendorNewOrder(vendor, owner, order, lines) {
   ].join('\n');
   const html = wrap(
     'You have a new order',
-    `<p>Hi ${esc(owner.name)}, a customer paid for items from <strong>${esc(vendor.businessName)}</strong>.</p>
+    `<p>Hi ${esc(owner.name)}, a customer ${order.paymentMethod === 'cod' ? 'ordered' : 'paid for'} items from <strong>${esc(vendor.businessName)}</strong>.${order.paymentMethod === 'cod' ? ' It is pay on delivery: Square Market collects the money when it is delivered, and your earnings are added to your wallet then.' : ''}</p>
 <table style="width:100%;border-collapse:collapse;font-size:15px">${itemRows(lines)}</table>
 ${button(`${vendorLink}/orders`, 'Open your orders')}`,
   );

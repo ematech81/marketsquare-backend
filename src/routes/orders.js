@@ -8,7 +8,8 @@ const validate = require('../middleware/validate');
 const { protect } = require('../middleware/auth');
 const { readCart } = require('../services/cart');
 const korapay = require('../services/korapay');
-const { markOrderPaid } = require('../services/orders');
+const { markOrderPaid, placeCodOrder } = require('../services/orders');
+const { getStoreSettings } = require('../services/storeSettings');
 const { webUrl, minOrderAmount } = require('../config/env');
 const states = require('../utils/nigeriaStates');
 const HttpError = require('../utils/httpError');
@@ -26,7 +27,12 @@ const checkoutSchema = z.object({
     landmark: z.string().trim().optional(),
   }),
   email: z.string().trim().toLowerCase().email('Enter a valid email').optional(),
+  paymentMethod: z.enum(['online', 'cod'], { message: 'Choose how you want to pay' }).default('online'),
 });
+
+// A customer can have this many pay-on-delivery orders waiting to be delivered. It stops someone from reserving
+// stock with orders they never intend to take.
+const MAX_OPEN_COD_ORDERS = 3;
 
 const orderNumber = () => `SM-${crypto.randomInt(10000000, 99999999)}`;
 
@@ -41,8 +47,9 @@ const view = async (order) => {
 };
 
 router.post('/checkout', checkoutLimiter, validate(checkoutSchema), async (req, res) => {
+  const cod = req.body.paymentMethod === 'cod';
   const prefix = process.env.KORAPAY_PREFIX;
-  if (!prefix || !/^[A-Z]{3,4}$/.test(prefix)) throw new HttpError(503, 'Payments are not set up yet');
+  if (!cod && (!prefix || !/^[A-Z]{3,4}$/.test(prefix))) throw new HttpError(503, 'Payments are not set up yet');
   const currency = process.env.KORAPAY_CURRENCY || 'NGN';
 
   const cart = await readCart(req.user._id);
@@ -65,6 +72,17 @@ router.post('/checkout', checkoutLimiter, validate(checkoutSchema), async (req, 
   const deliveryTotal = deliveries.reduce((sum, d) => sum + d.fee, 0);
   const total = cart.subtotal + deliveryTotal;
 
+  if (cod) {
+    const { codEnabled, codMaxAmount } = await getStoreSettings();
+    if (!codEnabled) throw new HttpError(400, 'Pay on delivery is not available right now. Please pay online');
+    if (total > codMaxAmount) {
+      throw new HttpError(400, `Pay on delivery is available for orders up to ₦${codMaxAmount.toLocaleString('en-NG')}. Please pay online for this order`);
+    }
+    if ((await Order.countDocuments({ user: req.user._id, paymentStatus: 'cod' })) >= MAX_OPEN_COD_ORDERS) {
+      throw new HttpError(409, 'You have pay-on-delivery orders still waiting to be delivered. Please wait for them, or pay online for this one');
+    }
+  }
+
   const order = await Order.create({
     user: req.user._id,
     orderNumber: orderNumber(),
@@ -84,9 +102,17 @@ router.post('/checkout', checkoutLimiter, validate(checkoutSchema), async (req, 
     deliveryTotal,
     total,
     currency,
-    // {PREFIX}-{uuid}: the router sends the webhook back here because of the prefix.
-    checkoutReference: `${prefix}-${crypto.randomUUID()}`,
+    paymentMethod: cod ? 'cod' : 'online',
+    paymentStatus: cod ? 'cod' : 'pending',
+    // {PREFIX}-{uuid}: the router sends the webhook back here because of the prefix. A pay-on-delivery order
+    // has no payment to wait for, so its reference never matches a KoraPay event.
+    checkoutReference: cod ? `COD-${crypto.randomUUID()}` : `${prefix}-${crypto.randomUUID()}`,
   });
+
+  if (cod) {
+    await placeCodOrder(order);
+    return res.status(201).json({ orderNumber: order.orderNumber, paymentMethod: 'cod' });
+  }
 
   let charge;
   try {

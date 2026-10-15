@@ -43,7 +43,10 @@ const orderSchema = new mongoose.Schema(
     currency: { type: String, required: true },
     // The webhook finds the order by this field, never by _id.
     checkoutReference: { type: String, required: true, unique: true },
-    paymentStatus: { type: String, enum: ['pending', 'paid', 'failed', 'mismatch'], default: 'pending', index: true },
+    // online: paid through KoraPay. cod: pay on delivery, the money is collected when the order arrives.
+    paymentMethod: { type: String, enum: ['online', 'cod'], default: 'online' },
+    // 'cod' means placed and waiting to be paid on delivery. It becomes 'paid' once the order has been delivered.
+    paymentStatus: { type: String, enum: ['pending', 'paid', 'failed', 'mismatch', 'cod'], default: 'pending', index: true },
     paidAt: Date,
     paidAmount: Number,
     // Set when payment succeeded but something needs a person to look at it (stock ran out, amount differed).

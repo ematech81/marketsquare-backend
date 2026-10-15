@@ -23,6 +23,8 @@ const settingsSchema = z.object({
   defaultCommissionRate: z.number().min(0, 'Commission cannot be negative').max(100, 'Commission cannot be more than 100%'),
   minPayoutAmount: z.number().int('Use a whole number of Naira').min(0),
   requireListingApproval: z.boolean(),
+  codEnabled: z.boolean().optional(),
+  codMaxAmount: z.number().int('Use a whole number of Naira').min(0).optional(),
 });
 
 router.put('/settings', validate(settingsSchema), async (req, res) => {

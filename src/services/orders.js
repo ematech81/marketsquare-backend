@@ -32,6 +32,14 @@ async function markOrderPaid(order, paidAmount) {
   );
   if (!claimed) return { order, alreadyProcessed: true };
 
+  await fulfilOrder(claimed, now);
+
+  return { order: claimed, alreadyProcessed: false };
+}
+
+// What happens once an order is real, whether it was paid online or placed as pay-on-delivery:
+// take the stock, make one shipment per seller, empty those items from the cart and tell everyone.
+async function fulfilOrder(claimed, now = new Date()) {
   // Take the stock. A product that sold out in the meantime is flagged, not silently oversold.
   const shortages = [];
   const taken = new Map();
@@ -86,11 +94,35 @@ async function markOrderPaid(order, paidAmount) {
   User.findById(claimed.user)
     .then((user) => {
       if (!user) return;
-      notify.orderPaid(claimed, user);
+      if (claimed.paymentMethod === 'cod') notify.orderPlacedCod(claimed, user);
+      else notify.orderPaid(claimed, user);
     })
     .catch((err) => console.error('Order email failed:', err.message));
-
-  return { order: claimed, alreadyProcessed: false };
 }
 
-module.exports = { markOrderPaid };
+// A pay-on-delivery order is real the moment it is placed: nothing is paid yet, but the items are reserved,
+// the vendors are told to start packing, and the money is collected when it arrives.
+async function placeCodOrder(order) {
+  await fulfilOrder(order);
+  return order;
+}
+
+// Pay on delivery: once every shipment that was not cancelled is delivered, the cash has been collected.
+// The order becomes paid for what was actually delivered. Safe to call any number of times.
+async function settleCodOrder(orderId) {
+  const order = await Order.findById(orderId);
+  if (!order || order.paymentMethod !== 'cod' || order.paymentStatus !== 'cod') return null;
+
+  const shipments = await Shipment.find({ order: order._id });
+  const live = shipments.filter((s) => s.status !== 'cancelled');
+  if (live.length === 0 || !live.every((s) => s.status === 'delivered')) return null;
+
+  const collected = live.reduce((sum, s) => sum + s.deliveryFee + s.items.reduce((n, i) => n + i.price * i.quantity, 0), 0);
+  return Order.findOneAndUpdate(
+    { _id: order._id, paymentStatus: 'cod' },
+    { paymentStatus: 'paid', paidAt: new Date(), paidAmount: collected },
+    { new: true }
+  );
+}
+
+module.exports = { markOrderPaid, placeCodOrder, settleCodOrder };

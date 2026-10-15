@@ -35,10 +35,22 @@ function orderPaid(order, user) {
   alertVendors(order).catch((err) => console.error('Vendor alert failed:', err.message));
 }
 
+// Pay on delivery: the order is placed but not paid. Same people hear about it, with the right words.
+function orderPlacedCod(order, user) {
+  emails.orderReceived(order, user);
+  emails.newOrderAlert(order, user);
+  sendSms({ to: order.address.phone, message: `Square Market: we received your order ${order.orderNumber}. Please have ${order.total} Naira ready to pay when it arrives.` });
+  sendSms({
+    to: process.env.ADMIN_ALERT_PHONE,
+    message: `New PAY ON DELIVERY order ${order.orderNumber}, ${order.total} Naira, ${order.address.state}.`,
+  });
+  alertVendors(order).catch((err) => console.error('Vendor alert failed:', err.message));
+}
+
 function shipmentChanged(order, user, shipment) {
   emails.shipmentUpdate(order, user, shipment);
   const text = SHIPMENT_SMS[shipment.status];
   if (text) sendSms({ to: order.address.phone, message: text(order.orderNumber) });
 }
 
-module.exports = { orderPaid, shipmentChanged };
+module.exports = { orderPaid, orderPlacedCod, shipmentChanged };

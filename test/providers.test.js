@@ -64,7 +64,7 @@ after(async () => {
 
 test('the store rules are public', async () => {
   const res = await call('GET', '/settings');
-  assert.deepEqual(res.data, { minOrderAmount: 30000, returnDays: 30, requireListingApproval: true });
+  assert.deepEqual(res.data, { minOrderAmount: 30000, returnDays: 30, requireListingApproval: true, codEnabled: true, codMaxAmount: 100000 });
 });
 
 test('orders under the minimum are refused, with a clear message', async () => {

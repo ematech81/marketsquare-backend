@@ -40,7 +40,7 @@ const summary = (order, shipments) => ({
 // filter: open (still being worked on), attention, done, all
 router.get('/orders', async (req, res) => {
   const filter = String(req.query.filter ?? 'open');
-  const orders = await Order.find({ paymentStatus: { $in: ['paid', 'mismatch', 'pending'] } })
+  const orders = await Order.find({ paymentStatus: { $in: ['paid', 'mismatch', 'pending', 'cod'] } })
     .populate('user', 'name')
     .sort({ createdAt: -1 })
     .limit(300);

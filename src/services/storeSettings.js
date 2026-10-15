@@ -8,6 +8,9 @@ const DEFAULTS = {
   minPayoutAmount: 10000,
   // When true, a vendor's new or changed listing is checked by the admin before it goes live.
   requireListingApproval: true,
+  // Pay on delivery: customers may choose it at checkout, for orders up to this total (Naira).
+  codEnabled: true,
+  codMaxAmount: 100000,
 };
 
 async function getStoreSettings() {

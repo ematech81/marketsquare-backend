@@ -4,6 +4,7 @@ const User = require('../models/User');
 const HttpError = require('../utils/httpError');
 const notify = require('./notify');
 const wallet = require('./wallet');
+const { settleCodOrder } = require('./orders');
 
 const FLOW = ['placed', 'confirmed', 'packed', 'shipped', 'delivered'];
 
@@ -32,7 +33,11 @@ async function moveShipment(shipment, status, allowed) {
   await shipment.save();
 
   // A delivered shipment pays the vendor.
-  if (status === 'delivered') await wallet.creditForDelivery(shipment);
+  if (status === 'delivered') {
+    await wallet.creditForDelivery(shipment);
+    // Pay on delivery: when the last shipment is delivered, the money has been collected.
+    await settleCodOrder(shipment.order);
+  }
 
   if (['shipped', 'delivered', 'cancelled'].includes(status)) {
     const order = await Order.findById(shipment.order);
