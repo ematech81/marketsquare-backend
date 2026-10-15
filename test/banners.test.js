@@ -128,6 +128,19 @@ test('at most 6 banners, and removing one makes room', async () => {
   assert.equal((await call('DELETE', `/admin/banners/${first}`, { token: admin })).status, 404);
 });
 
+test('the size of each design is kept, so the home page can fit it', async () => {
+  const made = await call('POST', '/admin/banners', { token: admin, body: { ...banner(8), image: { url: 'https://res.cloudinary.com/demo/image/upload/sized.jpg', width: 940, height: 348 } } });
+  assert.equal(made.status, 409); // the list is already full from the previous test
+  const first = (await call('GET', '/admin/banners', { token: admin })).data.banners[0]._id;
+  await call('DELETE', '/admin/banners/' + first, { token: admin });
+  const ok = await call('POST', '/admin/banners', { token: admin, body: { ...banner(8), image: { url: 'https://res.cloudinary.com/demo/image/upload/sized.jpg', width: 940, height: 348 } } });
+  assert.equal(ok.status, 201);
+  const shown = (await call('GET', '/banners')).data.banners.find((b) => b.alt === 'Promotion number 8');
+  assert.equal(shown.width, 940);
+  assert.equal(shown.height, 348);
+  assert.equal((await call('POST', '/admin/banners', { token: admin, body: { ...banner(9), image: { url: 'https://res.cloudinary.com/demo/image/upload/x.jpg', width: -5 } } })).status, 400);
+});
+
 test('banner uploads are signed into their own folder with a file name from the title', async () => {
   process.env.CLOUDINARY_CLOUD_NAME = 'democloud';
   process.env.CLOUDINARY_API_KEY = '12345';

@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
 
 // One slide in the home page's auto-scrolling banner. The admin uploads a finished design (for example from Canva).
-const imageSchema = new mongoose.Schema({ url: { type: String, required: true }, publicId: String }, { _id: false });
+// width and height (pixels) let the home page be shaped to fit the designs, so nothing important is cropped.
+const imageSchema = new mongoose.Schema({ url: { type: String, required: true }, publicId: String, width: Number, height: Number }, { _id: false });
 
 const bannerSchema = new mongoose.Schema(
   {

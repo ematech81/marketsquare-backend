@@ -17,6 +17,8 @@ router.get('/banners', async (req, res) => {
     banners: banners.map((b) => ({
       id: b._id,
       image: b.image.url,
+      width: b.image.width,
+      height: b.image.height,
       mobileImage: b.mobileImage?.url,
       alt: b.alt,
       link: b.link || undefined,
@@ -32,6 +34,8 @@ admin.use(protect, requireRole('admin'));
 const image = z.object({
   url: z.string().url().refine((u) => u.startsWith('https://'), 'The image address must start with https://'),
   publicId: z.string().optional(),
+  width: z.number().int().positive().max(20000).optional(),
+  height: z.number().int().positive().max(20000).optional(),
 });
 
 // A link may only go to a page on this site, or to a full https:// address. This blocks "javascript:" and similar tricks.
