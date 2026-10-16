@@ -26,6 +26,18 @@ const settingsSchema = z.object({
   requireListingApproval: z.boolean(),
   codEnabled: z.boolean().optional(),
   codMaxAmount: z.number().int('Use a whole number of Naira').min(0).optional(),
+  payoutHoldDays: z.number().int('Use a whole number of days').min(0).max(60).optional(),
+  newVendorExtraHoldDays: z.number().int('Use a whole number of days').min(0).max(60).optional(),
+});
+
+// Stops a vendor from delivering their own orders (or lets them again). A vendor who was delivering goes back to Square Market.
+router.patch('/vendors/:id/delivery', validate(z.object({ locked: z.boolean() })), async (req, res) => {
+  const vendor = await Vendor.findById(req.params.id);
+  if (!vendor) throw new HttpError(404, 'Vendor not found');
+  vendor.deliveryLocked = req.body.locked;
+  if (req.body.locked) vendor.deliveryMode = 'platform';
+  await vendor.save();
+  res.json({ vendor });
 });
 
 router.put('/settings', validate(settingsSchema), async (req, res) => {

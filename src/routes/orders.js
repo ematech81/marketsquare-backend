@@ -3,12 +3,14 @@ const crypto = require('crypto');
 const { z } = require('zod');
 const Order = require('../models/Order');
 const Shipment = require('../models/Shipment');
-const DeliveryZone = require('../models/DeliveryZone');
+const { quoteCart } = require('../services/delivery');
 const validate = require('../middleware/validate');
 const { protect } = require('../middleware/auth');
 const { readCart } = require('../services/cart');
 const korapay = require('../services/korapay');
 const { markOrderPaid, placeCodOrder } = require('../services/orders');
+const { moveShipment } = require('../services/shipments');
+const { openDispute } = require('../services/disputes');
 const { getStoreSettings } = require('../services/storeSettings');
 const { webUrl, minOrderAmount } = require('../config/env');
 const states = require('../utils/nigeriaStates');
@@ -42,7 +44,22 @@ const view = async (order) => {
   delete o.checkoutReference;
   return {
     ...o,
-    shipments: shipments.map((s) => ({ ...s.toObject(), vendorName: s.vendor ? s.vendor.businessName : 'Square Market', vendor: undefined })),
+    shipments: shipments.map((s) => {
+      const o = s.toObject();
+      // What the vendor earns and the wrong-code counter are not the customer's business. The delivery code is shown
+      // only while the order is on its way, because that is when the customer needs it.
+      const open = o.dispute?.status === 'open';
+      const flags = {
+        // "I received my order" works once it has shipped. "Report a problem" works until the vendor's money is released.
+        canConfirm: o.status === 'shipped' && !open,
+        canReport: ['shipped', 'delivered'].includes(o.status) && !open && !o.earning?.releasedAt,
+      };
+      delete o.earning;
+      delete o.codeAttempts;
+      if (o.dispute) o.dispute = { status: o.dispute.status, reason: o.dispute.reason, openedAt: o.dispute.openedAt };
+      if (o.status !== 'shipped') delete o.deliveryCode;
+      return { ...o, ...flags, vendorName: s.vendor ? s.vendor.businessName : 'Square Market', vendor: undefined };
+    }),
   };
 };
 
@@ -63,18 +80,28 @@ router.post('/checkout', checkoutLimiter, validate(checkoutSchema), async (req, 
   }
 
   const { address } = req.body;
-  const zone = await DeliveryZone.findOne({ state: address.state });
-  if (!zone) throw new HttpError(400, `We do not deliver to ${address.state} yet`);
-
-  // One delivery fee per seller.
+  // One delivery fee per seller: the store's own fee for the state, or the vendor's own fee when they deliver themselves.
   const sellers = [...new Set(cart.items.map((i) => (i.vendor ? String(i.vendor) : null)))];
-  const deliveries = sellers.map((v) => ({ vendor: v, fee: zone.fee, estimatedDays: zone.estimatedDays }));
+  const quotes = await quoteCart(sellers, address.state);
+  const cannot = quotes.find((q) => !q.quote);
+  if (cannot) {
+    throw new HttpError(
+      400,
+      cannot.vendor ? `${cannot.name} does not deliver to ${address.state}. Remove their items or choose another state` : `We do not deliver to ${address.state} yet`
+    );
+  }
+  const deliveries = quotes.map((q) => ({ vendor: q.vendor, fee: q.quote.fee, estimatedDays: q.quote.estimatedDays, mode: q.quote.mode }));
   const deliveryTotal = deliveries.reduce((sum, d) => sum + d.fee, 0);
   const total = cart.subtotal + deliveryTotal;
 
   if (cod) {
     const { codEnabled, codMaxAmount } = await getStoreSettings();
     if (!codEnabled) throw new HttpError(400, 'Pay on delivery is not available right now. Please pay online');
+    // Cash is only collected by Square Market. A vendor who delivers their own orders is never handed cash that
+    // belongs to the platform, so those orders are paid online (the same rule Konga uses for seller-delivered orders).
+    if (deliveries.some((d) => d.mode === 'vendor')) {
+      throw new HttpError(400, 'Pay on delivery is not available for items a vendor delivers themselves. Please pay online');
+    }
     if (total > codMaxAmount) {
       throw new HttpError(400, `Pay on delivery is available for orders up to ₦${codMaxAmount.toLocaleString('en-NG')}. Please pay online for this order`);
     }
@@ -144,6 +171,28 @@ function progressOf(statuses) {
   return 'Order placed';
 }
 
+// What delivery would cost for the signed-in customer's cart, seller by seller, for a state.
+// The checkout page shows it before they pay, so nobody is surprised.
+router.get('/delivery-quote', async (req, res) => {
+  const state = String(req.query.state ?? '');
+  if (!states.includes(state)) throw new HttpError(400, 'state: Choose your state');
+  const cart = await readCart(req.user._id);
+  const sellers = [...new Set(cart.items.map((i) => (i.vendor ? String(i.vendor) : null)))];
+  const quotes = await quoteCart(sellers, state);
+  res.json({
+    sellers: quotes.map((q) => ({
+      vendor: q.vendor,
+      name: q.name,
+      available: Boolean(q.quote),
+      mode: q.quote?.mode,
+      fee: q.quote?.fee,
+      estimatedDays: q.quote?.estimatedDays,
+    })),
+    // Pay on delivery needs every seller to be delivered by Square Market.
+    codAllowed: quotes.every((q) => q.quote && q.quote.mode === 'platform'),
+  });
+});
+
 router.get('/', async (req, res) => {
   const orders = await Order.find({ user: req.user._id, paymentStatus: { $ne: 'failed' } }).sort({ createdAt: -1 });
   const shipments = await Shipment.find({ order: { $in: orders.map((o) => o._id) } }).select('order status');
@@ -166,6 +215,29 @@ const findMine = async (req) => {
 
 router.get('/:orderNumber', async (req, res) => {
   res.json({ order: await view(await findMine(req)) });
+});
+
+// "I received my order": the customer confirms it arrived. This is how an order is completed when the person who
+// delivered it has no code, and it proves delivery just as well.
+router.post('/:orderNumber/shipments/:id/confirm-delivery', async (req, res) => {
+  const order = await findMine(req);
+  const shipment = await Shipment.findOne({ _id: req.params.id, order: order._id });
+  if (!shipment) throw new HttpError(404, 'Shipment not found');
+  if (String(order.user) !== String(req.user._id)) throw new HttpError(403, 'Only the customer can confirm delivery');
+  if (shipment.status !== 'shipped') throw new HttpError(409, 'You can confirm it once the order is on its way');
+  if (shipment.dispute?.status === 'open') throw new HttpError(409, 'You reported a problem with this order. Square Market is looking into it');
+  await moveShipment(shipment, 'delivered', ['delivered'], { by: 'customer' });
+  res.json({ order: await view(await Order.findById(order._id)) });
+});
+
+// "Report a problem": the vendor's money for this shipment is held until Square Market decides.
+router.post('/:orderNumber/shipments/:id/report', validate(z.object({ reason: z.string().trim() })), async (req, res) => {
+  const order = await findMine(req);
+  const shipment = await Shipment.findOne({ _id: req.params.id, order: order._id });
+  if (!shipment) throw new HttpError(404, 'Shipment not found');
+  if (String(order.user) !== String(req.user._id)) throw new HttpError(403, 'Only the customer can report a problem');
+  await openDispute(shipment, req.body.reason);
+  res.json({ order: await view(await Order.findById(order._id)) });
 });
 
 // The customer's return page calls this so the order updates even if the webhook is a few seconds late.

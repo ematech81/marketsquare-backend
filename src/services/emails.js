@@ -83,10 +83,13 @@ function shipmentUpdate(order, user, shipment) {
   if (!info) return Promise.resolve({ skipped: true });
   const to = order.contactEmail || user.email;
   const subject = `Your order ${order.orderNumber} ${info.subject}`;
-  const text = [`Hi ${user.name},`, '', info.line, '', ...itemLines(shipment.items), '', `Follow your order: ${orderLink(order)}`].join('\n');
+  const code = shipment.status === 'shipped' && shipment.fulfilledBy === 'vendor' ? shipment.deliveryCode : null;
+  const codeLine = code ? `Your delivery code is ${code}. Give it only to the person who hands you the items.` : '';
+  const text = [`Hi ${user.name},`, '', info.line, ...(codeLine ? ['', codeLine] : []), '', ...itemLines(shipment.items), '', `Follow your order: ${orderLink(order)}`].join('\n');
   const html = wrap(
     info.heading,
     `<p>Hi ${esc(user.name)}, ${esc(info.line)}</p>
+${codeLine ? `<p style="font-size:18px"><strong>${esc(codeLine)}</strong></p>` : ''}
 <table style="width:100%;border-collapse:collapse;font-size:15px">${itemRows(shipment.items)}</table>
 ${button(orderLink(order), 'View your order')}`,
   );

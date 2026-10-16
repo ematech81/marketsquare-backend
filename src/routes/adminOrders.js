@@ -7,6 +7,7 @@ const { protect, requireRole } = require('../middleware/auth');
 const HttpError = require('../utils/httpError');
 const { moveShipment } = require('../services/shipments');
 const wallet = require('../services/wallet');
+const { resolveDispute } = require('../services/disputes');
 
 router.use(protect, requireRole('admin'));
 
@@ -37,7 +38,8 @@ const summary = (order, shipments) => ({
   itemCount: order.items.reduce((n, i) => n + i.quantity, 0),
   // So the list can offer the next step (confirm, pack, ship, deliver) without opening the order.
   payment: order.paymentStatus === 'cod' ? 'Pay on delivery' : order.paymentMethod === 'cod' ? 'Paid on delivery' : undefined,
-  shipments: shipments.map((s) => ({ id: s._id, status: s.status })),
+  shipments: shipments.map((s) => ({ id: s._id, status: s.status, dispute: s.dispute?.status })),
+  dispute: shipments.some((s) => s.dispute?.status === 'open'),
 });
 
 // filter: open (still being worked on), attention, done, all
@@ -47,7 +49,7 @@ router.get('/orders', async (req, res) => {
     .populate('user', 'name')
     .sort({ createdAt: -1 })
     .limit(300);
-  const shipments = await Shipment.find({ order: { $in: orders.map((o) => o._id) } }).select('order status');
+  const shipments = await Shipment.find({ order: { $in: orders.map((o) => o._id) } }).select('order status dispute');
 
   const rows = orders.map((o) => {
     const own = shipments.filter((s) => String(s.order) === String(o._id));
@@ -58,12 +60,12 @@ router.get('/orders', async (req, res) => {
   const counts = {
     open: rows.filter(isOpen).length,
     toConfirm: rows.filter((r) => r.status === 'New').length,
-    attention: rows.filter((r) => r.status === 'Needs attention' || r.needsAttention).length,
+    attention: rows.filter((r) => r.status === 'Needs attention' || r.needsAttention || r.dispute).length,
   };
 
   const shown = rows.filter((r) => {
     if (filter === 'open') return isOpen(r);
-    if (filter === 'attention') return r.status === 'Needs attention' || r.needsAttention;
+    if (filter === 'attention') return r.status === 'Needs attention' || r.needsAttention || r.dispute;
     if (filter === 'done') return r.status === 'Delivered' || r.status === 'Cancelled';
     return true;
   });
@@ -94,6 +96,13 @@ router.patch('/shipments/:id/status', validate(statusSchema), async (req, res) =
   if (!shipment) throw new HttpError(404, 'Shipment not found');
   await moveShipment(shipment, req.body.status, ALL);
   res.json({ shipment });
+});
+
+// Settles a problem a customer reported: 'release' pays the vendor, 'refund' takes their earnings back.
+router.post('/shipments/:id/dispute', validate(z.object({ resolution: z.enum(['release', 'refund']), note: z.string().trim().max(300).optional() })), async (req, res) => {
+  const shipment = await Shipment.findById(req.params.id);
+  if (!shipment) throw new HttpError(404, 'Shipment not found');
+  res.json(await resolveDispute(shipment, req.body.resolution, req.body.note));
 });
 
 // After a return or refund on a vendor's delivered shipment, take the vendor's credit back.

@@ -78,6 +78,7 @@ async function fulfilOrder(claimed, now = new Date()) {
             stockTaken,
           })),
           deliveryFee: delivery?.fee ?? 0,
+          fulfilledBy: delivery?.mode === 'vendor' ? 'vendor' : 'platform',
           status: 'placed',
           timeline: [{ status: 'placed', at: now }],
           estimatedDelivery: eta,

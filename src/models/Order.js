@@ -35,6 +35,8 @@ const orderSchema = new mongoose.Schema(
         vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', default: null },
         fee: Number,
         estimatedDays: Number,
+        // Who delivers this seller's items: Square Market ('platform') or the vendor ('vendor').
+        mode: { type: String, enum: ['platform', 'vendor'], default: 'platform' },
         _id: false,
       },
     ],

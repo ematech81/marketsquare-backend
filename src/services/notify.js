@@ -71,10 +71,20 @@ const SHIPMENT_NOTE = {
 
 function shipmentChanged(order, user, shipment) {
   const note = SHIPMENT_NOTE[shipment.status];
-  if (note) notifyUser(user._id, { type: `shipment_${shipment.status}`, title: note[0], body: `Order ${order.orderNumber}. ${note[1]}`, link: `/orders/${order.orderNumber}` });
+  // A vendor who delivers their own order gets a 6-digit code made for the customer. It is only in the customer's own
+  // order page, text and email, and the customer gives it to the person who hands over the items.
+  const code = shipment.status === 'shipped' && shipment.fulfilledBy === 'vendor' ? shipment.deliveryCode : null;
+  if (note) {
+    const extra = code ? ` Delivery code: ${code}. Give it only to the person who hands you the items.` : '';
+    notifyUser(user._id, { type: `shipment_${shipment.status}`, title: note[0], body: `Order ${order.orderNumber}. ${note[1]}${extra}`, link: `/orders/${order.orderNumber}` });
+  }
   emails.shipmentUpdate(order, user, shipment);
   const text = SHIPMENT_SMS[shipment.status];
-  if (text) sendSms({ to: order.address.phone, message: text(order.orderNumber) });
+  if (code) {
+    sendSms({ to: order.address.phone, message: `Square Market: your order ${order.orderNumber} is on its way. Delivery code ${code}. Give it only to the person who hands you the items.` });
+  } else if (text) {
+    sendSms({ to: order.address.phone, message: text(order.orderNumber) });
+  }
 }
 
 module.exports = { orderPaid, orderPlacedCod, shipmentChanged };

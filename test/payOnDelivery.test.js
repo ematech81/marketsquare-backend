@@ -59,6 +59,7 @@ before(async () => {
   await User.create({ name: 'Admin', email: 'admin@example.com', phone: '08000000000', passwordHash: await bcrypt.hash('adminpass123', 4), role: 'admin' });
   admin = (await call('POST', '/auth/login', { body: { email: 'admin@example.com', password: 'adminpass123' } })).data.token;
   ada = (await call('POST', '/auth/register', { body: { name: 'Ada Obi', email: 'ada@example.com', phone: '08031234567', password: 'password123' } })).data.token;
+  await setCod({ payoutHoldDays: 0, newVendorExtraHoldDays: 0 }); // earnings available at once; the waiting period is tested elsewhere
   await call('PUT', '/admin/delivery-zones', { token: admin, body: { zones: [{ state: 'Lagos', fee: 2000, estimatedDays: 2 }] } });
 
   const cat = await Category.create({ name: 'Gadget', slug: 'gadget' });

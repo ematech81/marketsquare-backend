@@ -25,7 +25,16 @@ const vendorSchema = new mongoose.Schema(
     rejectionReason: { type: String, trim: true },
     // null means "use the platform default commission".
     commissionRate: { type: Number, min: 0, max: 100, default: null },
+    // Money the vendor can ask to be paid out now.
     walletBalance: { type: Number, default: 0 },
+    // Money earned from delivered orders that is still in its protection period. It becomes available on its release date.
+    pendingBalance: { type: Number, default: 0 },
+    // Who delivers this vendor's orders: Square Market ('platform') or the vendor ('self').
+    // A vendor who delivers must set their own delivery fees for the states they serve.
+    deliveryMode: { type: String, enum: ['platform', 'self'], default: 'platform' },
+    // Set by the admin to stop a vendor from delivering their own orders.
+    deliveryLocked: { type: Boolean, default: false },
+    deliveryRates: [{ state: { type: String, required: true }, fee: { type: Number, required: true, min: 0 }, estimatedDays: { type: Number, default: 3, min: 1, max: 30 }, _id: false }],
     reviewedAt: Date,
   },
   { timestamps: true }

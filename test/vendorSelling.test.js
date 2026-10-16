@@ -42,7 +42,7 @@ const sign = (data) => crypto.createHmac('sha256', process.env.KORAPAY_SECRET_KE
 const address = { fullName: 'Ada Obi', phone: '+2348031234567', street: '12 Allen Avenue', city: 'Ikeja', state: 'Lagos' };
 const image = { url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg' };
 const wait = async () => {
-  await new Promise((r) => setTimeout(r, 80));
+  await new Promise((r) => setTimeout(r, 400));
   await mailer.idle();
 };
 
@@ -101,8 +101,11 @@ after(async () => {
 test('store rules start with sensible defaults and only the admin can change them', async () => {
   assert.equal((await call('GET', '/admin/settings', { token: zara })).status, 403);
   const res = await call('GET', '/admin/settings', { token: admin });
-  assert.deepEqual(res.data.settings, { defaultCommissionRate: 10, minPayoutAmount: 10000, requireListingApproval: true, codEnabled: true, codMaxAmount: 100000 });
+  assert.deepEqual(res.data.settings, { defaultCommissionRate: 10, minPayoutAmount: 10000, requireListingApproval: true, codEnabled: true, codMaxAmount: 100000, payoutHoldDays: 7, newVendorExtraHoldDays: 7 });
   assert.equal((await call('PUT', '/admin/settings', { token: admin, body: { defaultCommissionRate: 150, minPayoutAmount: 5000, requireListingApproval: true } })).status, 400);
+  // The tests below are about selling and payouts, not the waiting period, so earnings are available at once.
+  // The waiting period has its own tests (test/delivery.test.js).
+  await call('PUT', '/admin/settings', { token: admin, body: { defaultCommissionRate: 10, minPayoutAmount: 10000, requireListingApproval: true, payoutHoldDays: 0, newVendorExtraHoldDays: 0 } });
 });
 
 test('a vendor lists a product, it waits for review, and goes live once approved', async () => {
@@ -190,7 +193,7 @@ test('a paid order alerts the vendor, who confirms, packs and ships but cannot m
   for (const status of ['confirmed', 'packed', 'shipped']) {
     assert.equal((await call('PATCH', `/vendor/shipments/${id}/status`, { token: zara, body: { status } })).status, 200);
   }
-  assert.equal((await call('PATCH', `/vendor/shipments/${id}/status`, { token: zara, body: { status: 'delivered' } })).status, 400); // not allowed by the schema
+  assert.equal((await call('PATCH', `/vendor/shipments/${id}/status`, { token: zara, body: { status: 'delivered' } })).status, 403); // Square Market delivers this one, so only Square Market marks it delivered
   assert.equal((await call('PATCH', `/vendor/shipments/${id}/status`, { token: zara, body: { status: 'cancelled' } })).status, 409); // already on its way
   assert.equal((await call('GET', '/vendor/wallet', { token: zara })).data.balance, 0); // nothing paid before delivery
 
@@ -200,7 +203,7 @@ test('a paid order alerts the vendor, who confirms, packs and ships but cannot m
   await call('PATCH', `/admin/shipments/${id}/status`, { token: admin, body: { status: 'delivered' } });
   const wallet = await call('GET', '/vendor/wallet', { token: zara });
   assert.equal(wallet.data.balance, 37800);
-  assert.deepEqual(wallet.data.transactions.map((t) => [t.type, t.amount]).sort(), [['commission', -4200], ['sale', 42000]]);
+  assert.deepEqual(wallet.data.transactions.map((t) => [t.type, t.amount]).sort(), [['commission', -4200], ['release', 37800], ['sale', 42000]]);
 });
 
 test('a vendor with their own commission rate earns on that rate', async () => {

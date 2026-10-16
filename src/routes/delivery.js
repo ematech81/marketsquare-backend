@@ -4,11 +4,34 @@ const DeliveryZone = require('../models/DeliveryZone');
 const validate = require('../middleware/validate');
 const { protect, requireRole } = require('../middleware/auth');
 const states = require('../utils/nigeriaStates');
+const Vendor = require('../models/Vendor');
+const { quoteForSeller } = require('../services/delivery');
 
 // Public: which states we deliver to, and what it costs.
 router.get('/delivery-zones', async (req, res) => {
   const zones = await DeliveryZone.find().sort({ state: 1 });
   res.json({ zones: zones.map((z) => ({ state: z.state, fee: z.fee, estimatedDays: z.estimatedDays })) });
+});
+
+// Public: what delivery costs from one seller to one state. `vendor` is a vendor id, or left out for the store's own products.
+router.get('/delivery-quote', async (req, res) => {
+  const state = String(req.query.state ?? '');
+  if (!states.includes(state)) return res.status(400).json({ message: 'state: Choose a state' });
+  const id = String(req.query.vendor ?? '');
+  const vendor = /^[a-f\d]{24}$/i.test(id) ? await Vendor.findOne({ _id: id, status: 'approved' }) : null;
+  const quote = await quoteForSeller(vendor, state);
+  res.json(quote ? { available: true, mode: quote.mode, fee: quote.fee, estimatedDays: quote.estimatedDays } : { available: false });
+});
+
+// The states a seller delivers to, so the product page can offer only those.
+router.get('/delivery-states', async (req, res) => {
+  const id = String(req.query.vendor ?? '');
+  const vendor = /^[a-f\d]{24}$/i.test(id) ? await Vendor.findOne({ _id: id, status: 'approved' }) : null;
+  if (vendor && vendor.deliveryMode === 'self' && !vendor.deliveryLocked) {
+    return res.json({ mode: 'vendor', zones: vendor.deliveryRates.map((r) => ({ state: r.state, fee: r.fee, estimatedDays: r.estimatedDays })).sort((a, b) => a.state.localeCompare(b.state)) });
+  }
+  const zones = await DeliveryZone.find().sort({ state: 1 });
+  res.json({ mode: 'platform', zones: zones.map((z) => ({ state: z.state, fee: z.fee, estimatedDays: z.estimatedDays })) });
 });
 
 const saveSchema = z.object({

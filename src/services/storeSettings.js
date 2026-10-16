@@ -11,6 +11,11 @@ const DEFAULTS = {
   // Pay on delivery: customers may choose it at checkout, for orders up to this total (Naira).
   codEnabled: true,
   codMaxAmount: 100000,
+  // After an order is delivered, the vendor's earnings wait this many days before they can be paid out. During this
+  // time the customer can report a problem. (Amazon does the same: money is released a week after confirmed delivery.)
+  payoutHoldDays: 7,
+  // A vendor's first 3 deliveries wait this many extra days, while they have no track record.
+  newVendorExtraHoldDays: 7,
 };
 
 async function getStoreSettings() {

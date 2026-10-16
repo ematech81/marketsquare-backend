@@ -10,6 +10,7 @@ const { protect } = require('../middleware/auth');
 const { requireVendor } = require('../middleware/vendor');
 const HttpError = require('../utils/httpError');
 const { getStoreSettings } = require('../services/storeSettings');
+const { releaseDueEarnings } = require('../services/wallet');
 const { sendMail } = require('../services/mailer');
 
 router.use(protect, requireVendor);
@@ -29,6 +30,7 @@ router.get('/overview', async (req, res) => {
   res.json({
     businessName: vendor.businessName,
     balance: vendor.walletBalance,
+    pending: vendor.pendingBalance,
     sales: sales[0]?.total ?? 0,
     toConfirm: shipments.filter((s) => s.status === 'placed').length,
     openOrders: shipments.filter((s) => ['placed', 'confirmed', 'packed', 'shipped'].includes(s.status)).length,
@@ -37,14 +39,33 @@ router.get('/overview', async (req, res) => {
 });
 
 router.get('/wallet', async (req, res) => {
+  await releaseDueEarnings({ vendorId: req.vendor._id });
   const vendor = await Vendor.findById(req.vendor._id);
   const settings = await getStoreSettings();
-  const [transactions, payouts] = await Promise.all([
+  const [transactions, payouts, waiting] = await Promise.all([
     WalletTransaction.find({ vendor: vendor._id }).sort({ createdAt: -1 }).limit(50),
     PayoutRequest.find({ vendor: vendor._id }).sort({ createdAt: -1 }).limit(20),
+    // Earnings still in their protection period, soonest first.
+    Shipment.find({
+      vendor: vendor._id,
+      'earning.net': { $exists: true },
+      'earning.releasedAt': { $exists: false },
+      'earning.reversedAt': { $exists: false },
+    })
+      .populate('order', 'orderNumber')
+      .sort({ 'earning.releaseAt': 1 })
+      .limit(50),
   ]);
   res.json({
     balance: vendor.walletBalance,
+    pending: vendor.pendingBalance,
+    holdDays: settings.payoutHoldDays,
+    waiting: waiting.map((s) => ({
+      orderNumber: s.order?.orderNumber,
+      net: s.earning.net,
+      releaseAt: s.earning.releaseAt,
+      onHold: s.dispute?.status === 'open',
+    })),
     minPayoutAmount: settings.minPayoutAmount,
     commissionRate: vendor.commissionRate ?? settings.defaultCommissionRate,
     bank: vendor.bank,
@@ -56,6 +77,7 @@ router.get('/wallet', async (req, res) => {
 // Asking for a payout takes the money out of the wallet straight away, so it cannot be asked for twice.
 // If the admin turns the request down, it goes back.
 router.post('/payouts', validate(z.object({ amount: z.number().int('Enter a whole number of Naira').positive('Enter an amount') })), async (req, res) => {
+  await releaseDueEarnings({ vendorId: req.vendor._id });
   const { amount } = req.body;
   const settings = await getStoreSettings();
   if (amount < settings.minPayoutAmount) throw new HttpError(400, `The smallest payout is ${naira(settings.minPayoutAmount)}`);
