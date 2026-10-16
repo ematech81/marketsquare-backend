@@ -10,6 +10,7 @@ const publicStore = (vendor, productCount) => ({
   state: vendor.state,
   city: vendor.city,
   productCount,
+  since: vendor.createdAt,
 });
 
 // Approved vendors who have at least one live product. Nothing private (ID, bank, phone) is shown.

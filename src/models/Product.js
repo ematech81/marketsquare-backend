@@ -24,6 +24,8 @@ const productSchema = new mongoose.Schema(
     // Barcode (EAN/UPC). Google uses it to recognise the exact product.
     gtin: { type: String, trim: true },
     tags: { type: [String], default: [] },
+    // The short selling points shown as a bullet list under "Key features", e.g. 'Lightweight and non-slip'.
+    highlights: { type: [String], default: [] },
     // Facts shown in a table on the product page, e.g. { label: 'Weight', value: '340 g' }.
     details: [{ label: { type: String, required: true, trim: true }, value: { type: String, required: true, trim: true }, _id: false }],
     // What Google shows in search results. Empty means we build them from the title and description.

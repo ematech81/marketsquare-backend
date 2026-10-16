@@ -33,6 +33,7 @@ const publicProduct = (p) => ({
   sku: p.sku,
   gtin: p.gtin,
   tags: p.tags,
+  highlights: p.highlights,
   details: p.details,
   seoTitle: p.seoTitle,
   seoDescription: p.seoDescription,

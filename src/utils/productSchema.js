@@ -45,6 +45,10 @@ const productSchema = z
       .max(15, 'Up to 15 tags')
       .default([])
       .transform((tags) => [...new Set(tags.map((t) => t.toLowerCase()))]),
+    highlights: z
+      .array(z.string().trim().min(1).max(200, 'Keep each key feature under 200 characters'))
+      .max(8, 'Up to 8 key features')
+      .default([]),
     details: z
       .array(z.object({ label: z.string().trim().min(1).max(40), value: z.string().trim().min(1).max(200) }))
       .max(25, 'Up to 25 product details')
