@@ -6,6 +6,7 @@ const validate = require('../middleware/validate');
 const { protect, requireRole } = require('../middleware/auth');
 const HttpError = require('../utils/httpError');
 const emails = require('../services/emails');
+const { notifyUser } = require('../services/notifications');
 
 router.use(protect, requireRole('admin'));
 
@@ -46,6 +47,12 @@ router.patch('/vendors/:id/status', validate(decisionSchema), async (req, res) =
 
   const applicant = await User.findById(vendor.user);
   if (applicant) emails.vendorDecision(vendor, applicant, status, reason);
+  notifyUser(vendor.user, {
+    type: `vendor_${status}`,
+    title: status === 'approved' ? 'Your vendor application is approved' : status === 'rejected' ? 'Your vendor application was not approved' : 'Your vendor account was updated',
+    body: status === 'approved' ? 'You can now list products from your vendor dashboard.' : status === 'rejected' ? reason : undefined,
+    link: status === 'rejected' ? '/become-a-vendor' : '/',
+  });
 
   res.json({ vendor });
 });

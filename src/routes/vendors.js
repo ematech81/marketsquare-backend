@@ -5,6 +5,7 @@ const validate = require('../middleware/validate');
 const { protect, requireRole } = require('../middleware/auth');
 const HttpError = require('../utils/httpError');
 const { findOrCreateCategory } = require('../services/categories');
+const { notifyAdmins } = require('../services/notifications');
 const { categoryLimiter } = require('../middleware/rateLimit');
 
 const text = (label) => z.string().trim().min(2, `Enter ${label}`);
@@ -43,6 +44,7 @@ router.post('/apply', protect, requireRole('customer'), categoryLimiter, validat
   // A category that is not in the list yet is added to the shared list.
   const { category } = await findOrCreateCategory(req.body.category);
   const vendor = await Vendor.create({ ...req.body, category: category.name, user: req.user._id });
+  notifyAdmins({ type: 'admin_vendor_application', title: 'New vendor application', body: vendor.businessName, link: '/vendors' });
   res.status(201).json({ vendor });
 });
 
@@ -59,6 +61,7 @@ router.put('/me', protect, validate(applySchema), async (req, res) => {
   if (vendor.status !== 'rejected') throw new HttpError(409, 'Only rejected applications can be resubmitted');
 
   const { category } = await findOrCreateCategory(req.body.category);
+  notifyAdmins({ type: 'admin_vendor_application', title: 'Vendor application sent again', body: req.body.businessName, link: '/vendors' });
   vendor.set({ ...req.body, category: category.name, status: 'pending', rejectionReason: undefined, reviewedAt: undefined });
   await vendor.save();
   res.json({ vendor });

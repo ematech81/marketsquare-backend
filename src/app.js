@@ -17,6 +17,7 @@ app.use(express.json());
 
 app.use('/api/health', require('./routes/health'));
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/vendors', require('./routes/vendors'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/admin', require('./routes/adminCatalog'));

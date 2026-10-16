@@ -9,6 +9,7 @@ const validate = require('../middleware/validate');
 const { protect, requireRole } = require('../middleware/auth');
 const HttpError = require('../utils/httpError');
 const emails = require('../services/emails');
+const { notifyUser } = require('../services/notifications');
 const { getStoreSettings, saveStoreSettings } = require('../services/storeSettings');
 
 router.use(protect, requireRole('admin'));
@@ -70,6 +71,14 @@ router.patch('/products/:id/review', validate(reviewSchema), async (req, res) =>
   const vendor = await Vendor.findById(product.vendor);
   const owner = vendor && (await User.findById(vendor.user));
   if (owner) emails.productReview(product, owner, decision, reason);
+  if (owner) {
+    notifyUser(owner._id, {
+      type: decision === 'approve' ? 'product_approved' : 'product_rejected',
+      title: decision === 'approve' ? 'Your product is live' : 'Your product needs changes',
+      body: decision === 'approve' ? product.title : `${product.title}: ${reason}`,
+      link: '/products',
+    });
+  }
 
   res.json({ product });
 });
@@ -111,6 +120,14 @@ router.patch('/payouts/:id', validate(payoutSchema), async (req, res) => {
   const vendor = await Vendor.findById(payout.vendor);
   const owner = vendor && (await User.findById(vendor.user));
   if (owner) emails.payoutUpdate(vendor, owner, payout);
+  if (owner) {
+    notifyUser(owner._id, {
+      type: status === 'paid' ? 'payout_paid' : 'payout_rejected',
+      title: status === 'paid' ? 'Your payout was sent' : 'Your payout request was not approved',
+      body: status === 'paid' ? `${payout.amount} Naira is on its way to your bank account.` : `${reason}. The money is back in your wallet.`,
+      link: '/wallet',
+    });
+  }
 
   res.json({ payout });
 });

@@ -14,6 +14,7 @@ const { sendMail } = require('../services/mailer');
 
 router.use(protect, requireVendor);
 
+const { notifyAdmins } = require('../services/notifications');
 const naira = (n) => `₦${Number(n).toLocaleString('en-NG')}`;
 
 // Numbers for the vendor's dashboard home.
@@ -85,6 +86,7 @@ router.post('/payouts', validate(z.object({ amount: z.number().int('Enter a whol
     text: `${vendor.businessName} asked to be paid ${naira(amount)}. Open the dashboard, go to Payouts, pay them, then mark it as paid.`,
     html: `<p>${vendor.businessName} asked to be paid ${naira(amount)}. Open the dashboard, go to Payouts, pay them, then mark it as paid.</p>`,
   });
+  notifyAdmins({ type: 'admin_payout_request', title: 'Payout requested', body: `${vendor.businessName} asked for ${naira(amount)}.`, link: '/payouts' });
   res.status(201).json({ payout, balance: vendor.walletBalance });
 });
 

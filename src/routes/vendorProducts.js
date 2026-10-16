@@ -9,6 +9,7 @@ const { freeSlug, changeSlug } = require('../utils/slug');
 const { productSchema } = require('../utils/productSchema');
 const { signUpload } = require('../utils/cloudinary');
 const { getStoreSettings } = require('../services/storeSettings');
+const { notifyAdmins } = require('../services/notifications');
 
 router.use(protect, requireVendor);
 
@@ -38,6 +39,9 @@ router.post('/products', validate(productSchema), async (req, res) => {
   const status = req.body.status === 'active' ? (requireListingApproval ? 'pending' : 'active') : 'draft';
   const slug = await freeSlug(Product, req.body.slug || req.body.title);
   const product = await Product.create({ ...req.body, status, slug, vendor: req.vendor._id });
+  if (status === 'pending') {
+    notifyAdmins({ type: 'admin_product_review', title: 'Product waiting for review', body: `${req.vendor.businessName}: ${product.title}`, link: '/products' });
+  }
   res.status(201).json({ product });
 });
 
@@ -64,6 +68,9 @@ router.put('/products/:id', validate(productSchema), async (req, res) => {
   product.set({ ...fields, status, rejectionReason: undefined });
   await changeSlug(Product, product, wantedSlug);
   await product.save();
+  if (status === 'pending') {
+    notifyAdmins({ type: 'admin_product_review', title: 'Product waiting for review', body: `${req.vendor.businessName}: ${product.title}`, link: '/products' });
+  }
   res.json({ product });
 });
 

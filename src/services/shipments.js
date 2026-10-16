@@ -39,7 +39,7 @@ async function moveShipment(shipment, status, allowed) {
     await settleCodOrder(shipment.order);
   }
 
-  if (['shipped', 'delivered', 'cancelled'].includes(status)) {
+  if (['confirmed', 'packed', 'shipped', 'delivered', 'cancelled'].includes(status)) {
     const order = await Order.findById(shipment.order);
     const user = order && (await User.findById(order.user));
     if (order && user) notify.shipmentChanged(order, user, shipment);
