@@ -4,6 +4,9 @@ const emails = require('./emails');
 const { sendSms } = require('./sms');
 const { notifyUser, notifyAdmins } = require('./notifications');
 
+// In-app text can use the Naira sign.
+const money = (n) => `₦${Number(n).toLocaleString('en-NG')}`;
+
 // SMS text avoids the Naira sign and other special characters, which would split it into extra, pricier messages.
 const SHIPMENT_SMS = {
   shipped: (n) => `Square Market: your order ${n} is on its way to you.`,
@@ -33,7 +36,7 @@ async function alertVendors(order) {
 // Payment confirmed: receipt to the customer, alert to the owner, alert to each vendor involved.
 function orderPaid(order, user) {
   notifyUser(user._id, { type: 'order_paid', title: 'Payment confirmed', body: `We received your payment for order ${order.orderNumber}.`, link: `/orders/${order.orderNumber}` });
-  notifyAdmins({ type: 'admin_new_order', title: `New paid order ${order.orderNumber}`, body: `${order.total} Naira, ${order.address.state}.`, link: `/orders/${order.orderNumber}` });
+  notifyAdmins({ type: 'admin_new_order', title: `New paid order ${order.orderNumber}`, body: `${money(order.total)}, ${order.address.state}.`, link: `/orders/${order.orderNumber}` });
   emails.orderReceived(order, user);
   emails.newOrderAlert(order, user);
   sendSms({ to: order.address.phone, message: `Square Market: we received your payment for order ${order.orderNumber}. We will deliver it to you soon.` });
@@ -46,8 +49,8 @@ function orderPaid(order, user) {
 
 // Pay on delivery: the order is placed but not paid. Same people hear about it, with the right words.
 function orderPlacedCod(order, user) {
-  notifyUser(user._id, { type: 'order_placed', title: 'Order placed', body: `Order ${order.orderNumber} is placed. Pay ${order.total} Naira when it arrives.`, link: `/orders/${order.orderNumber}` });
-  notifyAdmins({ type: 'admin_new_order', title: `New pay on delivery order ${order.orderNumber}`, body: `${order.total} Naira, ${order.address.state}.`, link: `/orders/${order.orderNumber}` });
+  notifyUser(user._id, { type: 'order_placed', title: 'Order placed', body: `Order ${order.orderNumber} is placed. Pay ${money(order.total)} when it arrives.`, link: `/orders/${order.orderNumber}` });
+  notifyAdmins({ type: 'admin_new_order', title: `New pay on delivery order ${order.orderNumber}`, body: `${money(order.total)}, ${order.address.state}.`, link: `/orders/${order.orderNumber}` });
   emails.orderReceived(order, user);
   emails.newOrderAlert(order, user);
   sendSms({ to: order.address.phone, message: `Square Market: we received your order ${order.orderNumber}. Please have ${order.total} Naira ready to pay when it arrives.` });

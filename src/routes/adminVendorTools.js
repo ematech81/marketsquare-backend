@@ -124,7 +124,7 @@ router.patch('/payouts/:id', validate(payoutSchema), async (req, res) => {
     notifyUser(owner._id, {
       type: status === 'paid' ? 'payout_paid' : 'payout_rejected',
       title: status === 'paid' ? 'Your payout was sent' : 'Your payout request was not approved',
-      body: status === 'paid' ? `${payout.amount} Naira is on its way to your bank account.` : `${reason}. The money is back in your wallet.`,
+      body: status === 'paid' ? `₦${Number(payout.amount).toLocaleString('en-NG')} is on its way to your bank account.` : `${reason}. The money is back in your wallet.`,
       link: '/wallet',
     });
   }
