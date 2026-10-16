@@ -131,9 +131,29 @@ router.post('/checkout', checkoutLimiter, validate(checkoutSchema), async (req, 
   res.status(201).json({ orderNumber: order.orderNumber, checkoutUrl: charge.checkout_url });
 });
 
+// Where an order has got to, in a word, worked out from its shipments.
+function progressOf(statuses) {
+  const live = statuses.filter((s) => s !== 'cancelled');
+  if (statuses.length === 0) return undefined;
+  if (live.length === 0) return 'Cancelled';
+  if (live.every((s) => s === 'delivered')) return 'Delivered';
+  if (live.every((s) => s === 'shipped' || s === 'delivered')) return 'Shipped';
+  if (live.some((s) => s === 'shipped' || s === 'delivered')) return 'Partly shipped';
+  if (live.some((s) => s === 'packed')) return 'Packed';
+  if (live.some((s) => s === 'confirmed')) return 'Confirmed';
+  return 'Order placed';
+}
+
 router.get('/', async (req, res) => {
   const orders = await Order.find({ user: req.user._id, paymentStatus: { $ne: 'failed' } }).sort({ createdAt: -1 });
-  res.json({ orders: orders.map((o) => ({ ...o.toObject(), checkoutReference: undefined })) });
+  const shipments = await Shipment.find({ order: { $in: orders.map((o) => o._id) } }).select('order status');
+  res.json({
+    orders: orders.map((o) => ({
+      ...o.toObject(),
+      checkoutReference: undefined,
+      progress: progressOf(shipments.filter((s) => String(s.order) === String(o._id)).map((s) => s.status)),
+    })),
+  });
 });
 
 const findMine = async (req) => {

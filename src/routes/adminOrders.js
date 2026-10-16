@@ -35,6 +35,9 @@ const summary = (order, shipments) => ({
   needsAttention: order.needsAttention,
   createdAt: order.createdAt,
   itemCount: order.items.reduce((n, i) => n + i.quantity, 0),
+  // So the list can offer the next step (confirm, pack, ship, deliver) without opening the order.
+  payment: order.paymentStatus === 'cod' ? 'Pay on delivery' : order.paymentMethod === 'cod' ? 'Paid on delivery' : undefined,
+  shipments: shipments.map((s) => ({ id: s._id, status: s.status })),
 });
 
 // filter: open (still being worked on), attention, done, all

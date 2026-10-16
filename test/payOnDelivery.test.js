@@ -108,8 +108,14 @@ test('pay on delivery places the order at once: no KoraPay page, stock reserved,
   assert.equal((await call('GET', '/cart', { token: ada })).data.items.length, 0);
 
   // It shows in the customer's list and the admin's open orders.
-  assert.equal((await call('GET', '/orders', { token: ada })).data.orders[0].paymentStatus, 'cod');
-  assert.equal((await call('GET', '/admin/orders', { token: admin })).data.orders.length, 1);
+  const mine = (await call('GET', '/orders', { token: ada })).data.orders[0];
+  assert.equal(mine.paymentStatus, 'cod');
+  assert.equal(mine.progress, 'Order placed'); // what the tracking list shows
+  const listed = (await call('GET', '/admin/orders', { token: admin })).data.orders;
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].payment, 'Pay on delivery');
+  assert.equal(listed[0].shipments.length, 1); // so the list can offer the next step
+  assert.equal(listed[0].shipments[0].status, 'placed');
 });
 
 test('delivering a pay-on-delivery order marks it paid, and the vendor is credited as usual', async () => {
