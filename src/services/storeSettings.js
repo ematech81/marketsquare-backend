@@ -8,6 +8,12 @@ const DEFAULTS = {
   minPayoutAmount: 10000,
   // When true, a vendor's new or changed listing is checked by the admin before it goes live.
   requireListingApproval: true,
+  // Who gets their listings checked by the admin before they go live (the way Jumia and Konga do it):
+  //   'all'   every vendor, every new listing and every change to what customers read or see (the default)
+  //   'smart' vendors who are not proven yet (fewer than provenAfterApprovals approved listings)
+  //   'none'  nobody (an 18+ product is always checked)
+  listingReviewMode: 'all',
+  provenAfterApprovals: 3,
   // Pay on delivery: customers may choose it at checkout, for orders up to this total (Naira).
   codEnabled: true,
   codMaxAmount: 100000,
@@ -20,7 +26,11 @@ const DEFAULTS = {
 
 async function getStoreSettings() {
   const doc = await Setting.findOne({ key: 'store' });
-  return { ...DEFAULTS, ...(doc?.values ?? {}) };
+  const values = doc?.values ?? {};
+  const settings = { ...DEFAULTS, ...values };
+  // A store that saved "do not check products" before there were review modes means 'none'.
+  if (values.listingReviewMode === undefined && values.requireListingApproval === false) settings.listingReviewMode = 'none';
+  return settings;
 }
 
 async function saveStoreSettings(values) {

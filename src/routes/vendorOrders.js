@@ -8,6 +8,8 @@ const HttpError = require('../utils/httpError');
 const { moveShipment, MAX_CODE_TRIES } = require('../services/shipments');
 const { grossOf } = require('../services/wallet');
 const { sendMail } = require('../services/mailer');
+const Order = require('../models/Order');
+const { notifyAdmins } = require('../services/notifications');
 
 router.use(protect, requireVendor);
 
@@ -69,11 +71,27 @@ router.patch('/shipments/:id/status', validate(statusSchema), async (req, res) =
   if (status === 'cancelled' && !['placed', 'confirmed', 'packed'].includes(shipment.status)) {
     throw new HttpError(409, 'A shipment that is already on its way cannot be cancelled. Contact Square Market');
   }
-  await moveShipment(shipment, status, ['confirmed', 'packed', 'shipped', 'delivered', 'cancelled'], {
+  const mine = shipment.fulfilledBy === 'vendor';
+  // When Square Market delivers, the vendor's job ends at "packed": it tells Square Market the order is ready to collect,
+  // and Square Market ships it and updates the customer.
+  if (status === 'shipped' && !mine) {
+    throw new HttpError(403, 'Square Market collects and delivers this order. Mark it packed, and Square Market will take it from there');
+  }
+  await moveShipment(shipment, status, mine ? ['confirmed', 'packed', 'shipped', 'delivered', 'cancelled'] : ['confirmed', 'packed', 'cancelled'], {
     by: 'vendor',
     delivery: { courierName: req.body.courierName, courierPhone: req.body.courierPhone, note: req.body.note },
     code: req.body.code,
   });
+
+  if (status === 'packed' && !mine) {
+    const order = await Order.findById(shipment.order).select('orderNumber');
+    notifyAdmins({
+      type: 'admin_ready_to_collect',
+      title: 'Ready to collect',
+      body: `${req.vendor.businessName} has packed order ${order?.orderNumber}. Collect it and ship it to the customer.`,
+      link: `/orders/${order?.orderNumber}`,
+    });
+  }
 
   // The customer has paid, so the admin must know to arrange the refund.
   if (status === 'cancelled') {

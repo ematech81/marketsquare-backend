@@ -26,6 +26,11 @@ const productSchema = new mongoose.Schema(
     tags: { type: [String], default: [] },
     // The short selling points shown as a bullet list under "Key features", e.g. 'Lightweight and non-slip'.
     highlights: { type: [String], default: [] },
+    // For adults only (18+), like wine, spirits and tobacco. The store shows an 18+ mark, buyers confirm their age at checkout,
+    // and the delivery person is told to check ID. An 18+ product is always checked by the admin before it goes live.
+    ageRestricted: { type: Boolean, default: false },
+    // When the admin approved this listing. A vendor with enough approved listings counts as proven.
+    approvedAt: { type: Date },
     // Facts shown in a table on the product page, e.g. { label: 'Weight', value: '340 g' }.
     details: [{ label: { type: String, required: true, trim: true }, value: { type: String, required: true, trim: true }, _id: false }],
     // What Google shows in search results. Empty means we build them from the title and description.

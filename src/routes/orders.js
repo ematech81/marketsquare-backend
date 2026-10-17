@@ -11,6 +11,8 @@ const korapay = require('../services/korapay');
 const { markOrderPaid, placeCodOrder } = require('../services/orders');
 const { moveShipment } = require('../services/shipments');
 const { openDispute } = require('../services/disputes');
+const { progressOf: orderProgress, LABEL } = require('../services/orderProgress');
+const { whyNotCancellable, cancelOrder } = require('../services/cancellation');
 const { getStoreSettings } = require('../services/storeSettings');
 const { webUrl, minOrderAmount } = require('../config/env');
 const states = require('../utils/nigeriaStates');
@@ -30,6 +32,8 @@ const checkoutSchema = z.object({
   }),
   email: z.string().trim().toLowerCase().email('Enter a valid email').optional(),
   paymentMethod: z.enum(['online', 'cod'], { message: 'Choose how you want to pay' }).default('online'),
+  // Needed when the cart has 18+ items: the buyer says they are 18 or older.
+  ageConfirmed: z.boolean().optional(),
 });
 
 // A customer can have this many pay-on-delivery orders waiting to be delivered. It stops someone from reserving
@@ -38,27 +42,45 @@ const MAX_OPEN_COD_ORDERS = 3;
 
 const orderNumber = () => `SM-${crypto.randomInt(10000000, 99999999)}`;
 
+// What the customer sees of an order: ONE order moving along, however many vendors it came from. Vendor names, what
+// vendors earn and Square Market's own notes are left out. The packages are listed only because some have a delivery
+// code or a button on them, and they are numbered, not named.
 const view = async (order) => {
-  const shipments = await Shipment.find({ order: order._id }).populate('vendor', 'businessName');
+  const shipments = await Shipment.find({ order: order._id });
   const o = order.toObject();
   delete o.checkoutReference;
+  delete o.deliveries;
+  delete o.needsAttention;
+  o.items = o.items.map(({ vendor, ...line }) => line);
+
+  const why = await whyNotCancellable(order);
+  const live = shipments.filter((x) => x.status !== 'cancelled');
+  const cancelled = order.paymentStatus === 'cancelled' || (Boolean(order.cancelledAt) && live.length === 0);
+
   return {
     ...o,
-    shipments: shipments.map((s) => {
-      const o = s.toObject();
+    progress: orderProgress(shipments),
+    // Whether the "Cancel order" button shows, and why not when it does not.
+    canCancel: why === null,
+    cancelBlockedReason: why ?? undefined,
+    // A cancelled (or never paid) order can be taken off the customer's list.
+    canDelete: cancelled || order.paymentStatus === 'failed',
+    shipments: shipments.map((sh, i) => {
+      const p = sh.toObject();
       // What the vendor earns and the wrong-code counter are not the customer's business. The delivery code is shown
-      // only while the order is on its way, because that is when the customer needs it.
-      const open = o.dispute?.status === 'open';
+      // only while the package is on its way, because that is when the customer needs it.
+      const open = p.dispute?.status === 'open';
       const flags = {
         // "I received my order" works once it has shipped. "Report a problem" works until the vendor's money is released.
-        canConfirm: o.status === 'shipped' && !open,
-        canReport: ['shipped', 'delivered'].includes(o.status) && !open && !o.earning?.releasedAt,
+        canConfirm: p.status === 'shipped' && !open,
+        canReport: ['shipped', 'delivered'].includes(p.status) && !open && !p.earning?.releasedAt,
       };
-      delete o.earning;
-      delete o.codeAttempts;
-      if (o.dispute) o.dispute = { status: o.dispute.status, reason: o.dispute.reason, openedAt: o.dispute.openedAt };
-      if (o.status !== 'shipped') delete o.deliveryCode;
-      return { ...o, ...flags, vendorName: s.vendor ? s.vendor.businessName : 'Square Market', vendor: undefined };
+      delete p.earning;
+      delete p.codeAttempts;
+      delete p.vendor;
+      if (p.dispute) p.dispute = { status: p.dispute.status, reason: p.dispute.reason, openedAt: p.dispute.openedAt };
+      if (p.status !== 'shipped') delete p.deliveryCode;
+      return { ...p, ...flags, package: i + 1 };
     }),
   };
 };
@@ -80,6 +102,11 @@ router.post('/checkout', checkoutLimiter, validate(checkoutSchema), async (req, 
   }
 
   const { address } = req.body;
+  // Items for adults only (like wine). The buyer must confirm their age, and the delivery person checks ID.
+  const adultOnly = cart.items.some((i) => i.product.ageRestricted);
+  if (adultOnly && req.body.ageConfirmed !== true) {
+    throw new HttpError(400, 'ageConfirmed: Your cart has items for adults only (18+). Please confirm you are 18 or older to continue');
+  }
   // One delivery fee per seller: the store's own fee for the state, or the vendor's own fee when they deliver themselves.
   const sellers = [...new Set(cart.items.map((i) => (i.vendor ? String(i.vendor) : null)))];
   const quotes = await quoteCart(sellers, address.state);
@@ -121,7 +148,9 @@ router.post('/checkout', checkoutLimiter, validate(checkoutSchema), async (req, 
       price: i.price,
       quantity: i.quantity,
       options: i.options,
+      ageRestricted: Boolean(i.product.ageRestricted),
     })),
+    ageConfirmed: adultOnly ? true : undefined,
     address,
     contactEmail: req.body.email,
     subtotal: cart.subtotal,
@@ -158,17 +187,14 @@ router.post('/checkout', checkoutLimiter, validate(checkoutSchema), async (req, 
   res.status(201).json({ orderNumber: order.orderNumber, checkoutUrl: charge.checkout_url });
 });
 
-// Where an order has got to, in a word, worked out from its shipments.
-function progressOf(statuses) {
-  const live = statuses.filter((s) => s !== 'cancelled');
-  if (statuses.length === 0) return undefined;
-  if (live.length === 0) return 'Cancelled';
-  if (live.every((s) => s === 'delivered')) return 'Delivered';
-  if (live.every((s) => s === 'shipped' || s === 'delivered')) return 'Shipped';
-  if (live.some((s) => s === 'shipped' || s === 'delivered')) return 'Partly shipped';
-  if (live.some((s) => s === 'packed')) return 'Packed';
-  if (live.some((s) => s === 'confirmed')) return 'Confirmed';
-  return 'Order placed';
+// Where an order has got to, in a word or two, for the list.
+function progressLabel(order, shipments) {
+  if (order.paymentStatus === 'cancelled') return 'Cancelled';
+  if (shipments.length === 0) return undefined;
+  const p = orderProgress(shipments);
+  if (p.cancelled) return 'Cancelled';
+  if (p.partial && p.stage !== 'shipped' && p.stage !== 'delivered') return 'Partly shipped';
+  return p.stage === 'placed' ? 'Order placed' : LABEL[p.stage];
 }
 
 // What delivery would cost for the signed-in customer's cart, seller by seller, for a state.
@@ -194,13 +220,16 @@ router.get('/delivery-quote', async (req, res) => {
 });
 
 router.get('/', async (req, res) => {
-  const orders = await Order.find({ user: req.user._id, paymentStatus: { $ne: 'failed' } }).sort({ createdAt: -1 });
-  const shipments = await Shipment.find({ order: { $in: orders.map((o) => o._id) } }).select('order status');
+  // A cancelled order the customer removed from their list stays hidden.
+  const orders = await Order.find({ user: req.user._id, paymentStatus: { $ne: 'failed' }, hiddenByCustomer: { $ne: true } }).sort({ createdAt: -1 });
+  const shipments = await Shipment.find({ order: { $in: orders.map((o) => o._id) } }).select('order status timeline');
   res.json({
     orders: orders.map((o) => ({
       ...o.toObject(),
       checkoutReference: undefined,
-      progress: progressOf(shipments.filter((s) => String(s.order) === String(o._id)).map((s) => s.status)),
+      deliveries: undefined,
+      needsAttention: undefined,
+      progress: progressLabel(o, shipments.filter((s) => String(s.order) === String(o._id))),
     })),
   });
 });
@@ -238,6 +267,32 @@ router.post('/:orderNumber/shipments/:id/report', validate(z.object({ reason: z.
   if (String(order.user) !== String(req.user._id)) throw new HttpError(403, 'Only the customer can report a problem');
   await openDispute(shipment, req.body.reason);
   res.json({ order: await view(await Order.findById(order._id)) });
+});
+
+// Cancel the whole order. Allowed only while nothing is packed or on its way (see whyNotCancellable). If the customer
+// already paid online, a refund is recorded for Square Market to send.
+router.post(
+  '/:orderNumber/cancel',
+  validate(z.object({ reason: z.string().trim().min(2, 'Tell us why you are cancelling').max(100), note: z.string().trim().max(300).optional() })),
+  async (req, res) => {
+    const order = await findMine(req);
+    if (String(order.user) !== String(req.user._id)) throw new HttpError(403, 'Only the customer can cancel their order');
+    const why = await whyNotCancellable(order);
+    if (why) throw new HttpError(409, why);
+    await cancelOrder(order, { by: 'customer', reason: req.body.reason, note: req.body.note });
+    res.json({ order: await view(await Order.findById(order._id)) });
+  }
+);
+
+// Take a cancelled order off the customer's list. Square Market keeps the record (it may still owe a refund).
+router.delete('/:orderNumber', async (req, res) => {
+  const order = await findMine(req);
+  if (String(order.user) !== String(req.user._id)) throw new HttpError(403, 'Only the customer can remove their order');
+  const shipments = await Shipment.find({ order: order._id }).select('status');
+  const cancelled = order.paymentStatus === 'cancelled' || (Boolean(order.cancelledAt) && shipments.every((x) => x.status === 'cancelled'));
+  if (!cancelled && order.paymentStatus !== 'failed') throw new HttpError(409, 'Only a cancelled order can be deleted. Cancel it first, if it can still be cancelled');
+  await Order.updateOne({ _id: order._id }, { hiddenByCustomer: true });
+  res.json({ ok: true });
 });
 
 // The customer's return page calls this so the order updates even if the webhook is a few seconds late.

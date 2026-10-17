@@ -23,11 +23,23 @@ router.get('/settings', async (req, res) => {
 const settingsSchema = z.object({
   defaultCommissionRate: z.number().min(0, 'Commission cannot be negative').max(100, 'Commission cannot be more than 100%'),
   minPayoutAmount: z.number().int('Use a whole number of Naira').min(0),
-  requireListingApproval: z.boolean(),
+  requireListingApproval: z.boolean().optional(),
+  listingReviewMode: z.enum(['all', 'smart', 'none']).optional(),
+  provenAfterApprovals: z.number().int('Use a whole number').min(1).max(50).optional(),
   codEnabled: z.boolean().optional(),
   codMaxAmount: z.number().int('Use a whole number of Naira').min(0).optional(),
   payoutHoldDays: z.number().int('Use a whole number of days').min(0).max(60).optional(),
   newVendorExtraHoldDays: z.number().int('Use a whole number of days').min(0).max(60).optional(),
+});
+
+// How this vendor's listings are checked: 'auto' follows the store's setting, 'always' checks every listing,
+// 'trusted' lets them publish straight away. An 18+ product is always checked.
+router.patch('/vendors/:id/listing-review', validate(z.object({ mode: z.enum(['auto', 'always', 'trusted']) })), async (req, res) => {
+  const vendor = await Vendor.findById(req.params.id);
+  if (!vendor) throw new HttpError(404, 'Vendor not found');
+  vendor.listingReview = req.body.mode;
+  await vendor.save();
+  res.json({ vendor });
 });
 
 // Stops a vendor from delivering their own orders (or lets them again). A vendor who was delivering goes back to Square Market.
@@ -41,7 +53,13 @@ router.patch('/vendors/:id/delivery', validate(z.object({ locked: z.boolean() })
 });
 
 router.put('/settings', validate(settingsSchema), async (req, res) => {
-  res.json({ settings: await saveStoreSettings(req.body) });
+  const body = { ...req.body };
+  // The old on/off switch still works: on means every listing is checked, off means none.
+  if (body.listingReviewMode === undefined && body.requireListingApproval !== undefined) {
+    body.listingReviewMode = body.requireListingApproval ? 'all' : 'none';
+  }
+  if (body.listingReviewMode !== undefined) body.requireListingApproval = body.listingReviewMode !== 'none';
+  res.json({ settings: await saveStoreSettings(body) });
 });
 
 // A vendor's own commission rate. null goes back to the store's default rate.
@@ -77,6 +95,7 @@ router.patch('/products/:id/review', validate(reviewSchema), async (req, res) =>
     if (product.images.length === 0) throw new HttpError(400, 'This listing has no images');
     product.status = 'active';
     product.rejectionReason = undefined;
+    product.approvedAt = new Date();
   }
   await product.save();
 

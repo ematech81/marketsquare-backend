@@ -35,6 +35,7 @@ const publicProduct = (p) => ({
   gtin: p.gtin,
   tags: p.tags,
   highlights: p.highlights,
+  ageRestricted: Boolean(p.ageRestricted),
   details: p.details,
   seoTitle: p.seoTitle,
   seoDescription: p.seoDescription,

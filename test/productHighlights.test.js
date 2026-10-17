@@ -66,13 +66,17 @@ test('key features are saved, tidied and shown on the product page data', async 
   assert.deepEqual((await call('GET', `/products/${plain.data.product.slug}`)).data.product.highlights, []);
 });
 
-test('key features are limited to 8 lines of 200 characters', async () => {
-  const nine = Array.from({ length: 9 }, (_, i) => `Feature ${i}`);
-  const many = await call('POST', '/admin/products', { token: admin, body: body({ title: 'Too Many', highlights: nine }) });
-  assert.equal(many.status, 400);
-  assert.match(many.data.message, /Up to 8 key features/);
-  const long = await call('POST', '/admin/products', { token: admin, body: body({ title: 'Too Long', highlights: ['x'.repeat(201)] }) });
-  assert.equal(long.status, 400);
+test('key features have no everyday limit: a long list pasted from another site is fine', async () => {
+  const many = Array.from({ length: 40 }, (_, i) => `Feature number ${i + 1}: ${'a long selling point '.repeat(8)}`);
+  const made = await call('POST', '/admin/products', { token: admin, body: body({ title: 'Many Features', highlights: many }) });
+  assert.equal(made.status, 201);
+  assert.equal((await call('GET', `/products/${made.data.product.slug}`)).data.product.highlights.length, 40);
+});
+
+test('only an absurd amount of key features is refused, as a safety net', async () => {
+  const tooMany = Array.from({ length: 201 }, (_, i) => `Feature ${i}`);
+  assert.equal((await call('POST', '/admin/products', { token: admin, body: body({ title: 'Way Too Many', highlights: tooMany }) })).status, 400);
+  assert.equal((await call('POST', '/admin/products', { token: admin, body: body({ title: 'Way Too Long', highlights: ['x'.repeat(2001)] }) })).status, 400);
 });
 
 test('a store shows since when the vendor joined, for the seller card', async () => {

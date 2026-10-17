@@ -5,6 +5,8 @@ const User = require('../models/User');
 const HttpError = require('../utils/httpError');
 const notify = require('./notify');
 const wallet = require('./wallet');
+const Shipment = require('../models/Shipment');
+const { progressOf } = require('./orderProgress');
 const { settleCodOrder } = require('./orders');
 
 const FLOW = ['placed', 'confirmed', 'packed', 'shipped', 'delivered'];
@@ -43,6 +45,8 @@ async function moveShipment(shipment, status, allowed, opts = {}) {
   }
 
   const selfDelivered = shipment.fulfilledBy === 'vendor';
+  // Where the whole order stands before this change, so the customer is told only when the ORDER moves on.
+  const before = progressOf(await Shipment.find({ order: shipment.order }));
 
   if (status === 'shipped' && selfDelivered) {
     // The vendor says who is carrying it, so the customer and Square Market know. The code proves it arrived.
@@ -88,10 +92,12 @@ async function moveShipment(shipment, status, allowed, opts = {}) {
     await settleCodOrder(shipment.order);
   }
 
-  if (['confirmed', 'packed', 'shipped', 'delivered', 'cancelled'].includes(status)) {
+  // `silent` is used when a whole order is cancelled: the customer gets one message for it, not one per package.
+  if (!opts.silent && ['confirmed', 'packed', 'shipped', 'delivered', 'cancelled'].includes(status)) {
     const order = await Order.findById(shipment.order);
     const user = order && (await User.findById(order.user));
-    if (order && user) notify.shipmentChanged(order, user, shipment);
+    const after = progressOf(await Shipment.find({ order: shipment.order }));
+    if (order && user) notify.orderProgressed(order, user, { before, after, shipment });
   }
   return shipment;
 }

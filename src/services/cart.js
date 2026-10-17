@@ -23,6 +23,7 @@ async function readCart(userId) {
         slug: p.slug,
         image: p.images[0]?.url ?? null,
         seller: p.vendor ? { id: p.vendor._id, name: p.vendor.businessName } : { id: null, name: 'Square Market' },
+        ageRestricted: Boolean(p.ageRestricted),
       },
       vendor: p.vendor ? p.vendor._id : null,
       price: p.price,

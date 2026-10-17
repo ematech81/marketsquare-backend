@@ -87,4 +87,26 @@ function shipmentChanged(order, user, shipment) {
   }
 }
 
-module.exports = { orderPaid, orderPlacedCod, shipmentChanged };
+// The customer follows ONE order, however many vendors it came from. So they are told when the whole order moves on
+// ("Your order is packed", "Your order is on its way"), not every time one vendor's package does.
+// Two things are still said per package: the delivery code for a package a vendor delivers themselves, and a cancelled package.
+function orderProgressed(order, user, { before, after, shipment }) {
+  if (shipment.status === 'shipped' && shipment.fulfilledBy === 'vendor') return shipmentChanged(order, user, shipment);
+  if (shipment.status === 'cancelled') return shipmentChanged(order, user, shipment);
+
+  if (after.index > before.index) {
+    // The whole order reached a new stage.
+    return shipmentChanged(order, user, { status: after.stage, items: order.items, fulfilledBy: 'platform' });
+  }
+  if (shipment.status === 'shipped' && before.packages.onTheWay === 0 && after.packages.onTheWay > 0) {
+    notifyUser(user._id, {
+      type: 'order_partly_shipped',
+      title: 'Part of your order is on its way',
+      body: `Order ${order.orderNumber}: ${after.packages.onTheWay} of ${after.packages.live} packages have shipped. The rest will follow.`,
+      link: `/orders/${order.orderNumber}`,
+    });
+  }
+  return undefined;
+}
+
+module.exports = { orderPaid, orderPlacedCod, shipmentChanged, orderProgressed };

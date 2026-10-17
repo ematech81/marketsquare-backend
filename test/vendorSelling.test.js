@@ -101,7 +101,7 @@ after(async () => {
 test('store rules start with sensible defaults and only the admin can change them', async () => {
   assert.equal((await call('GET', '/admin/settings', { token: zara })).status, 403);
   const res = await call('GET', '/admin/settings', { token: admin });
-  assert.deepEqual(res.data.settings, { defaultCommissionRate: 10, minPayoutAmount: 10000, requireListingApproval: true, codEnabled: true, codMaxAmount: 100000, payoutHoldDays: 7, newVendorExtraHoldDays: 7 });
+  assert.deepEqual(res.data.settings, { defaultCommissionRate: 10, minPayoutAmount: 10000, requireListingApproval: true, codEnabled: true, codMaxAmount: 100000, payoutHoldDays: 7, newVendorExtraHoldDays: 7, listingReviewMode: 'all', provenAfterApprovals: 3 });
   assert.equal((await call('PUT', '/admin/settings', { token: admin, body: { defaultCommissionRate: 150, minPayoutAmount: 5000, requireListingApproval: true } })).status, 400);
   // The tests below are about selling and payouts, not the waiting period, so earnings are available at once.
   // The waiting period has its own tests (test/delivery.test.js).
@@ -190,9 +190,14 @@ test('a paid order alerts the vendor, who confirms, packs and ships but cannot m
   assert.equal((await call('GET', '/vendor/orders', { token: tunde })).data.shipments.length, 0);
   assert.equal((await call('PATCH', `/vendor/shipments/${id}/status`, { token: tunde, body: { status: 'confirmed' } })).status, 404);
 
-  for (const status of ['confirmed', 'packed', 'shipped']) {
+  for (const status of ['confirmed', 'packed']) {
     assert.equal((await call('PATCH', `/vendor/shipments/${id}/status`, { token: zara, body: { status } })).status, 200);
   }
+  // Square Market delivers, so the vendor cannot ship it. Square Market collects it and ships it.
+  const tooSoon = await call('PATCH', `/vendor/shipments/${id}/status`, { token: zara, body: { status: 'shipped' } });
+  assert.equal(tooSoon.status, 403);
+  assert.match(tooSoon.data.message, /Square Market collects/);
+  assert.equal((await call('PATCH', `/admin/shipments/${id}/status`, { token: admin, body: { status: 'shipped' } })).status, 200);
   assert.equal((await call('PATCH', `/vendor/shipments/${id}/status`, { token: zara, body: { status: 'delivered' } })).status, 403); // Square Market delivers this one, so only Square Market marks it delivered
   assert.equal((await call('PATCH', `/vendor/shipments/${id}/status`, { token: zara, body: { status: 'cancelled' } })).status, 409); // already on its way
   assert.equal((await call('GET', '/vendor/wallet', { token: zara })).data.balance, 0); // nothing paid before delivery

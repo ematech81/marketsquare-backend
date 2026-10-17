@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const Order = require('../models/Order');
 const korapay = require('../services/korapay');
 const { markOrderPaid } = require('../services/orders');
+const { notifyAdmins } = require('../services/notifications');
 
 const safeEqual = (a, b) => {
   const x = Buffer.from(String(a));
@@ -28,6 +29,21 @@ router.post('/korapay', async (req, res) => {
     const order = await Order.findOne({ checkoutReference: data.reference });
     // An event for a reference we do not know: acknowledge so the router does not keep retrying it.
     if (!order) return res.status(200).json({ ok: true, ignored: true });
+    // The customer cancelled, then paid anyway (for example from a payment page they left open). Nothing is shipped,
+    // and the money must go back.
+    if (order.paymentStatus === 'cancelled') {
+      await Order.updateOne(
+        { _id: order._id, 'refund.status': { $ne: 'done' } },
+        { $set: { refund: { status: 'due', amount: Number(data.amount), dueAt: new Date() }, needsAttention: 'Paid after the order was cancelled. Refund it.' } }
+      );
+      notifyAdmins({
+        type: 'admin_refund_due',
+        title: 'Refund due',
+        body: `Order ${order.orderNumber} was paid after it was cancelled. Refund ₦${Number(data.amount).toLocaleString('en-NG')}.`,
+        link: `/orders/${order.orderNumber}`,
+      });
+      return res.status(200).json({ ok: true });
+    }
     await markOrderPaid(order, data.amount);
   }
 

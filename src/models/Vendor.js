@@ -34,6 +34,9 @@ const vendorSchema = new mongoose.Schema(
     deliveryMode: { type: String, enum: ['platform', 'self'], default: 'platform' },
     // Set by the admin to stop a vendor from delivering their own orders.
     deliveryLocked: { type: Boolean, default: false },
+    // How this vendor's listings are checked: 'auto' follows the store's setting, 'always' means every listing is checked,
+    // 'trusted' means their listings go live straight away (18+ products are still checked).
+    listingReview: { type: String, enum: ['auto', 'always', 'trusted'], default: 'auto' },
     deliveryRates: [{ state: { type: String, required: true }, fee: { type: Number, required: true, min: 0 }, estimatedDays: { type: Number, default: 3, min: 1, max: 30 }, _id: false }],
     reviewedAt: Date,
   },

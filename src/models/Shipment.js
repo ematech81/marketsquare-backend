@@ -12,6 +12,7 @@ const shipmentSchema = new mongoose.Schema(
         price: Number,
         quantity: Number,
         options: [{ name: String, value: String, _id: false }],
+        ageRestricted: { type: Boolean, default: false },
         // True when this line's stock was taken at payment, so cancelling puts it back exactly once.
         stockTaken: { type: Boolean, default: false },
         _id: false,

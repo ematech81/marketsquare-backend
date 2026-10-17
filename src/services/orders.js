@@ -75,6 +75,7 @@ async function fulfilOrder(claimed, now = new Date()) {
             price: l.price,
             quantity: l.quantity,
             options: l.options,
+            ageRestricted: Boolean(l.ageRestricted),
             stockTaken,
           })),
           deliveryFee: delivery?.fee ?? 0,

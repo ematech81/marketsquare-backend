@@ -45,10 +45,12 @@ const productSchema = z
       .max(15, 'Up to 15 tags')
       .default([])
       .transform((tags) => [...new Set(tags.map((t) => t.toLowerCase()))]),
+    // As many as the seller likes (they are often copied from another site). The limits are only a safety net.
     highlights: z
-      .array(z.string().trim().min(1).max(200, 'Keep each key feature under 200 characters'))
-      .max(8, 'Up to 8 key features')
+      .array(z.string().trim().min(1).max(2000, 'A key feature can be at most 2,000 characters'))
+      .max(200, 'That is a lot of key features. The most is 200')
       .default([]),
+    ageRestricted: z.boolean().default(false),
     details: z
       .array(z.object({ label: z.string().trim().min(1).max(40), value: z.string().trim().min(1).max(200) }))
       .max(25, 'Up to 25 product details')

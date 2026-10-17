@@ -23,9 +23,11 @@ router.get('/overview', async (req, res) => {
 
   const shipments = await Shipment.find({ order: { $in: recent.map((o) => o._id) } }).select('order status');
   const statusOf = (order) => {
+    if (order.paymentStatus === 'cancelled') return 'Cancelled';
     if (order.paymentStatus === 'pending') return 'Awaiting payment';
     if (order.paymentStatus === 'mismatch') return 'Needs attention';
     const s = shipments.filter((x) => String(x.order) === String(order._id)).map((x) => x.status);
+    if (s.length > 0 && s.every((x) => x === 'cancelled')) return 'Cancelled';
     if (s.length > 0 && s.every((x) => x === 'delivered')) return 'Delivered';
     if (s.some((x) => x === 'shipped' || x === 'delivered')) return s.every((x) => x === 'shipped' || x === 'delivered') ? 'Shipped' : 'Partly shipped';
     if (s.some((x) => x === 'packed')) return 'Packed';

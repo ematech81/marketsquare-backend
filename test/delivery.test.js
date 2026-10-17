@@ -312,7 +312,10 @@ test('after the money is released, a customer can no longer open a problem (they
 test('Square Market delivering for a vendor: the vendor cannot deliver, there is no code, and no delivery fee goes to them', async () => {
   const { shipment } = await buy(tundeProduct);
   assert.equal(shipment.fulfilledBy, 'platform');
-  for (const status of ['confirmed', 'packed', 'shipped']) assert.equal((await vendorStep(tunde, shipment, { status })).status, 200);
+  for (const status of ['confirmed', 'packed']) assert.equal((await vendorStep(tunde, shipment, { status })).status, 200);
+  // The vendor says it is ready; Square Market ships it.
+  assert.equal((await vendorStep(tunde, shipment, { status: 'shipped' })).status, 403);
+  assert.equal((await call('PATCH', `/admin/shipments/${shipment._id}/status`, { token: admin, body: { status: 'shipped' } })).status, 200);
   assert.equal((await Shipment.findById(shipment._id)).deliveryCode, undefined);
   assert.equal((await vendorStep(tunde, shipment, { status: 'delivered', code: '123456' })).status, 403);
 
@@ -376,7 +379,7 @@ test('the settings control the waiting periods', async () => {
 
   // With no waiting period the money is available the moment it is delivered.
   const { shipment } = await buy(tundeProduct);
-  for (const status of ['confirmed', 'packed', 'shipped']) await vendorStep(tunde, shipment, { status });
-  await call('PATCH', `/admin/shipments/${shipment._id}/status`, { token: admin, body: { status: 'delivered' } });
+  for (const status of ['confirmed', 'packed']) await vendorStep(tunde, shipment, { status });
+  for (const status of ['shipped', 'delivered']) await call('PATCH', `/admin/shipments/${shipment._id}/status`, { token: admin, body: { status } });
   assert.ok((await Shipment.findById(shipment._id)).earning.releasedAt);
 });
