@@ -8,6 +8,7 @@ const HttpError = require('../utils/httpError');
 const { slugify, freeSlug, changeSlug } = require('../utils/slug');
 const { productSchema } = require('../utils/productSchema');
 const { signUpload } = require('../utils/cloudinary');
+const { loadAll, assertValidParent } = require('../services/categoryTree');
 
 router.use(protect, requireRole('admin'));
 
@@ -17,6 +18,8 @@ const categorySchema = z.object({
   name: z.string().trim().min(2, 'Enter a category name'),
   image: z.string().trim().url().optional(),
   order: z.number().int().optional(),
+  // The category this one goes inside. Leave out (or null) for a top-level category.
+  parent: z.string().regex(/^[a-f\d]{24}$/i, 'Choose a parent category').nullable().optional(),
 });
 
 router.post('/categories', validate(categorySchema), async (req, res) => {
@@ -24,19 +27,25 @@ router.post('/categories', validate(categorySchema), async (req, res) => {
   if (await Category.exists({ $or: [{ slug }, { name: req.body.name }] })) {
     throw new HttpError(409, 'A category with this name already exists');
   }
-  const category = await Category.create({ ...req.body, slug });
+  await assertValidParent(req.body.parent);
+  const category = await Category.create({ ...req.body, parent: req.body.parent || null, slug });
   res.status(201).json({ category });
 });
 
 router.put('/categories/:id', validate(categorySchema), async (req, res) => {
   const category = await Category.findById(req.params.id);
   if (!category) throw new HttpError(404, 'Category not found');
+  // `parent` is only changed when it is sent, so renaming never moves a category by accident.
+  if (req.body.parent !== undefined) await assertValidParent(req.body.parent, category._id);
   category.set({ ...req.body, slug: slugify(req.body.name) });
   await category.save();
   res.json({ category });
 });
 
 router.delete('/categories/:id', async (req, res) => {
+  if (await Category.exists({ parent: req.params.id })) {
+    throw new HttpError(409, 'Move or delete the sub-categories inside it first');
+  }
   if (await Product.exists({ category: req.params.id })) {
     throw new HttpError(409, 'Move or delete the products in this category first');
   }

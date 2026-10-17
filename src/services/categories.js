@@ -1,6 +1,7 @@
 const { z } = require('zod');
 const Category = require('../models/Category');
 const HttpError = require('../utils/httpError');
+const { assertValidParent } = require('./categoryTree');
 const { slugify } = require('../utils/slug');
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -19,7 +20,7 @@ const nameSchema = z
 
 // Returns the category with this name, making it when it does not exist yet.
 // "fashion", "Fashion" and " FASHION " are the same category, so the list never gets near-duplicates.
-async function findOrCreateCategory(rawName) {
+async function findOrCreateCategory(rawName, parentId = null) {
   const parsed = nameSchema.safeParse(rawName);
   if (!parsed.success) throw new HttpError(400, `category: ${parsed.error.issues[0].message}`);
   const name = parsed.data;
@@ -29,8 +30,10 @@ async function findOrCreateCategory(rawName) {
   const find = () => Category.findOne({ $or: [{ name: new RegExp(`^${escapeRegex(name)}$`, 'i') }, { slug }] });
   const existing = await find();
   if (existing) return { category: existing, created: false };
+  // Where it goes: top level, or inside another category.
+  await assertValidParent(parentId || null);
   try {
-    return { category: await Category.create({ name, slug }), created: true };
+    return { category: await Category.create({ name, slug, parent: parentId || null }), created: true };
   } catch (err) {
     // Two people adding the same new category at once: the second one gets the first one's.
     if (err.code === 11000) {

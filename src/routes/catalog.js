@@ -4,6 +4,7 @@ const Product = require('../models/Product');
 const HttpError = require('../utils/httpError');
 const { protect, requireRole } = require('../middleware/auth');
 const { findOrCreateCategory } = require('../services/categories');
+const { loadAll, withDescendants, pathOf } = require('../services/categoryTree');
 const { categoryLimiter } = require('../middleware/rateLimit');
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -43,7 +44,7 @@ const publicProduct = (p) => ({
 
 // A vendor or admin who cannot find their category adds it. It joins the one shared list used everywhere.
 router.post('/categories', protect, requireRole('vendor', 'admin'), categoryLimiter, async (req, res) => {
-  const { category, created } = await findOrCreateCategory(req.body?.name);
+  const { category, created } = await findOrCreateCategory(req.body?.name, req.body?.parent);
   res.status(created ? 201 : 200).json({ category, created });
 });
 
@@ -65,9 +66,11 @@ router.get('/products', async (req, res) => {
   if (category) {
     // Several categories can be chosen at once: category=fashion,beauty.
     const slugs = String(category).split(',').map((s) => s.trim()).filter(Boolean);
-    const cats = await Category.find({ slug: { $in: slugs } }).select('_id');
+    const all = await loadAll();
+    const picked = all.filter((c) => slugs.includes(c.slug));
+    // Browsing a category includes everything inside it: "Fashion" shows Men's fashion and Men's shoes too.
     // An unknown category matches nothing rather than everything.
-    filter.category = { $in: cats.map((x) => x._id) };
+    filter.category = { $in: [...withDescendants(all, picked.map((c) => c._id))] };
   }
   if (vendor) {
     // vendor=<id,id> picks stores; vendor=house is the store's own products.
@@ -109,7 +112,9 @@ router.get('/products/:slug', async (req, res) => {
     .populate('category', 'name slug')
     .populate('vendor', 'businessName');
   if (!product) throw new HttpError(404, 'Product not found');
-  res.json({ product: publicProduct(product) });
+  // The full trail, for the breadcrumb: Fashion > Men's fashion > Men's shoes.
+  const categoryPath = pathOf(await loadAll(), product.category._id);
+  res.json({ product: { ...publicProduct(product), categoryPath } });
 });
 
 module.exports = router;
